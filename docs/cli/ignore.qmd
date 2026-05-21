@@ -1,8 +1,24 @@
-# `proj ignore --auto`
+# `proj ignore`
 
-Automatically synchronizes ignore rules dynamically across `.gitignore` and `.Rbuildignore` based on the configuration of `_proj.yml`.
+Commands for interacting with tracking file exclusions, handling operations to manually or automatically modify `.gitignore` and `.Rbuildignore` files.
 
-> **Note:** While the `ignore` command is invoked implicitly by the CLI via `proj yml read` and doesn't appear openly as a standalone explicit command argument natively exposed in the `proj --help` terminal menu directly, it behaves consistently under the hood via the ignore demarcation engine applying the automated `--auto` behaviors seamlessly.
+## `proj ignore add`
+
+Manually appends one or more raw file or directory paths to the project ignore files.
+
+Unlike automatic configurations driven by `_proj.yml`, these manual entries represent permanent, user-specified exclusions and are placed strictly *above* the `# --- PROJ MANAGED ---` blocks.
+
+### Arguments & Flags
+
+- `<PATHS>...`: One or more raw file or directory paths to be ignored.
+- `--force-create`: Boolean flag (default `true`). If true, creates ignore files if they don't exist. If false, skips file creation unless inherently warranted by environmental cues (e.g. finding a `.git` folder or a `DESCRIPTION` file).
+- `--type`: Optional filter selection (`all` [default], `git`, `rbuild`). Determines which tracking surface receives the manual path entries.
+
+## Automated Synchronization
+
+The library core automatically synchronizes ignore rules dynamically across `.gitignore` and `.Rbuildignore` based on the configuration of `_proj.yml`.
+
+> **Note:** While the automated ignore synchronization is invoked implicitly by the CLI via commands like `proj yml read` (and acts seamlessly under the hood), the `ignore` subcommand namespace exists openly to support explicit manual additions via `proj ignore add`.
 
 ## Automated Root Scans
 
