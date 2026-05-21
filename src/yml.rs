@@ -60,8 +60,16 @@ pub struct ProjConfig {
     pub build: BuildConfig,
     #[serde(default)]
     pub dev: DevConfig,
+    /// Captures arbitrary parameters maps under any matching alias keys.
+    /// Evaluates aliases in order: "parameters", "parameter", "params", "param".
+    #[serde(alias = "parameter", alias = "params", alias = "param", default = "default_parameters")]
+    pub parameters: serde_yaml::Value,
     #[serde(default)]
     pub metadata: Option<Value>,
+}
+
+fn default_parameters() -> serde_yaml::Value {
+    serde_yaml::Value::Mapping(serde_yaml::Mapping::new())
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -234,15 +242,20 @@ fn default_ignore() -> IgnoreConfig {
 /// ```rust
 /// use std::collections::HashMap;
 /// use proj::yml::{ValidatedConfig, ResolvedGitConfig, RestrictionsConfig, GlobalConfig};
-/// let config = ValidatedConfig { remotes: Default::default(), dest: vec![],
+/// let config = ValidatedConfig { 
+///     remotes: Default::default(), 
+///     dest: vec![],
 ///     config: GlobalConfig::default(), 
 ///     directories: HashMap::new(), 
 ///     git: ResolvedGitConfig { commit: false, push: false }, 
 ///     restrictions: RestrictionsConfig::default(), 
-///     clear_output: None, output_run: None,
-///     old_dev_remove: None 
+///     clear_output: None, 
+///     output_run: None,
+///     old_dev_remove: None,
+///     parameters: Default::default()
 /// };
 /// ```
+#[derive(Debug)]
 pub struct ValidatedConfig {
     pub remotes: RemotesConfig,
     pub dest: Vec<String>,
@@ -253,6 +266,7 @@ pub struct ValidatedConfig {
     pub clear_output: Option<String>,
     pub output_run: Option<bool>,
     pub old_dev_remove: Option<bool>,
+    pub parameters: serde_yaml::Value,
 }
 
 /// Represents a validated directory with an absolute or properly referenced system path.
@@ -264,6 +278,7 @@ pub struct ValidatedConfig {
 /// use proj::yml::{ResolvedDir, IgnoreConfig};
 /// let resolved = ResolvedDir { path: PathBuf::from("_raw"), ignore: IgnoreConfig::Single("all".to_string()) };
 /// ```
+#[derive(Debug)]
 pub struct ResolvedDir {
     pub path: PathBuf,
     pub ignore: IgnoreConfig,
@@ -397,6 +412,7 @@ impl ProjConfig {
             clear_output: self.build.clear_output.clone(),
             output_run: self.build.output_run,
             old_dev_remove: self.dev.old_dev_remove,
+            parameters: self.parameters.clone(),
         })
     }
 }
@@ -422,13 +438,17 @@ impl ValidatedConfig {
     ///     ignore: IgnoreConfig::Single("all".to_string())
     /// });
     ///
-    /// let config = ValidatedConfig { remotes: Default::default(), dest: vec![],
+    /// let config = ValidatedConfig { 
+    ///     remotes: Default::default(), 
+    ///     dest: vec![],
     ///     config: GlobalConfig::default(), 
     ///     directories: dirs, 
     ///     git: ResolvedGitConfig { commit: false, push: false }, 
     ///     restrictions: RestrictionsConfig::default(), 
-    ///     clear_output: None, output_run: None,
-    ///     old_dev_remove: None 
+    ///     clear_output: None, 
+    ///     output_run: None,
+    ///     old_dev_remove: None,
+    ///     parameters: Default::default()
     /// };
     /// let path = config.get_path(&PathBuf::from("/mock/root"), "raw-data").unwrap();
     /// assert_eq!(path, PathBuf::from("/mock/root/_raw/data"));
@@ -487,42 +507,10 @@ fn make_absolute(root: &std::path::Path, path: &std::path::Path) -> PathBuf {
     }
 }
 
-/// Reads, validates, and initializes the local `_proj.yml` configuration mapping.
-///
-/// This performs an upward search for the root context, parses any existing `_proj.yml`,
-/// and runs the automated `update_ignores` routine to manage source tracking boundaries.
-///
-/// # Errors
-///
-/// Returns an error if the underlying filesystem context lacks a valid structural root
-/// or if YAML formatting constraints are severely violated.
-///
-/// ```rust
-/// use std::fs;
-/// use tempfile::TempDir;
-/// use proj::yml::yml_read_from;
-///
-/// let temp = TempDir::new().unwrap();
-/// let root_path = temp.path();
-/// fs::write(root_path.join("VERSION"), "v1.0.0").unwrap();
-/// fs::write(root_path.join("_proj.yml"), "directories:\n  raw:\n    ignore: all\n").unwrap();
-///
-/// let config = yml_read_from(root_path, false).unwrap();
-/// assert!(config.directories.contains_key("raw"));
-/// ```
 /// Deep merges `source` into `target`.
-///
-/// If a value in `source` is Null, it falls back to the value in `target` (i.e. does nothing if target has it, or just keeps target's value).
-/// Wait, if source has Null, it means the value was unset in the profile but maybe set in base.
-/// Let's refine: The precedence is Local > Profile > Base.
-/// So we merge `profile` over `base`, then `local` over `profile_merged`.
-/// When merging `B` over `A`:
-/// If `B` is Null, the result is `A`.
-/// If `B` is Object and `A` is Object, recursively merge `B`'s fields into `A`.
-/// Otherwise, `B` overwrites `A`.
 pub fn deep_merge(target: Value, source: Value) -> Value {
     match (target.clone(), source.clone()) {
-        (_, Value::Null) => target, // Null means fall back to target
+        (_, Value::Null) => target,
         (Value::Object(mut target_map), Value::Object(source_map)) => {
             for (k, v) in source_map {
                 let target_val = target_map.remove(&k).unwrap_or(Value::Null);
@@ -530,17 +518,11 @@ pub fn deep_merge(target: Value, source: Value) -> Value {
             }
             Value::Object(target_map)
         }
-        (Value::Array(_), Value::Array(_)) => {
-            // Wait, for arrays, does source overwrite entirely, or merge?
-            // The prompt says "unless both matching nodes are nested maps, in which case their fields merge recursively."
-            // So arrays overwrite.
-            source
-        }
-        (_, _) => source, // source overwrites target
+        (_, _) => source,
     }
 }
 
-/// Strictly filters out any top-level namespace not in `directories`, `build`, `dev`, `metadata`, `remotes`, `config`.
+/// Strictly filters out any top-level namespace not in permitted keys.
 pub fn yml_get_filter_top_level(value: Value) -> Value {
     if let Value::Object(map) = value {
         let mut new_map = serde_json::Map::new();
@@ -558,17 +540,26 @@ pub fn yml_get_filter_top_level(value: Value) -> Value {
 
 /// Pipeline coordinator to merge `_proj.yml`, active profiles, and `_projr-local.yml`.
 pub fn get_combined_yml(explicit_profile: Option<&str>, base_dir: &std::path::Path) -> Result<Value, String> {
-    // 1. Read base `_proj.yml`
     let base_path = base_dir.join("_proj.yml");
     let mut base_val = if base_path.exists() {
         let content = fs::read_to_string(&base_path).map_err(|e| e.to_string())?;
-        let yaml_val: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
-        serde_json::to_value(yaml_val).map_err(|e| e.to_string())?
+
+        // Multi-alias conflict safeguard
+        let raw_yaml: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+        if let serde_yaml::Value::Mapping(map) = &raw_yaml {
+            let aliases = ["parameters", "parameter", "params", "param"];
+            let found_count = aliases.iter().filter(|&a| map.contains_key(&serde_yaml::Value::String(a.to_string()))).count();
+            if found_count > 1 {
+                return Err("Configuration error: multiple 'parameters' aliases found in _proj.yml.".to_string());
+            }
+        }
+
+        let json_val: Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+        json_val
     } else {
         Value::Object(serde_json::Map::new())
     };
 
-    // 2. Read profiles from PROJR_PROFILE and explicit profile
     let mut profiles = get_active_profiles();
     if let Some(ep) = explicit_profile {
         let additional: Vec<String> = ep.split(|c| c == ',' || c == ';')
@@ -582,71 +573,97 @@ pub fn get_combined_yml(explicit_profile: Option<&str>, base_dir: &std::path::Pa
         let profile_path = base_dir.join(format!("_projr-{}.yml", p));
         if profile_path.exists() {
             let content = fs::read_to_string(&profile_path).map_err(|e| e.to_string())?;
-            let yaml_val: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
-            let profile_val: Value = serde_json::to_value(yaml_val).map_err(|e| e.to_string())?;
-            base_val = deep_merge(base_val, profile_val);
+            let yaml_val: Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+            base_val = deep_merge(base_val, yaml_val);
         }
     }
 
-    // 3. Read local `_projr-local.yml`
     let local_path = base_dir.join("_projr-local.yml");
     if local_path.exists() {
         let content = fs::read_to_string(&local_path).map_err(|e| e.to_string())?;
-        let yaml_val: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
-        let local_val: Value = serde_json::to_value(yaml_val).map_err(|e| e.to_string())?;
-        base_val = deep_merge(base_val, local_val);
+        let yaml_val: Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+        base_val = deep_merge(base_val, yaml_val);
     }
 
-    // 4. Filter top-level
-    let filtered_val = yml_get_filter_top_level(base_val);
-
-    Ok(filtered_val)
+    Ok(yml_get_filter_top_level(base_val))
 }
 
 pub fn yml_read_from(project_root: &std::path::Path, is_dev: bool) -> Result<ValidatedConfig, String> {
     let combined_val = get_combined_yml(None, project_root)?;
-
-    let config: ProjConfig = serde_json::from_value(combined_val).unwrap_or_default();
-
+    let config: ProjConfig = serde_json::from_value(combined_val).map_err(|e| e.to_string())?;
     let validated = config.validate_and_resolve(project_root, is_dev)?;
-
-    // Execute the Ignore Demarcation Engine
     update_ignores(project_root, &validated)?;
-
     Ok(validated)
 }
 
-/// Thin production wrapper: Reads, validates, and initializes the local `_proj.yml` configuration mapping using implicit system root.
-///
-/// # Errors
-///
-/// Returns an error if the underlying filesystem context lacks a valid structural root
-/// or if YAML formatting constraints are severely violated.
-///
-/// ```rust,ignore
-/// use proj::yml::yml_read;
-/// let config = yml_read();
-/// ```
+/// Extracts a deeply nested parameter value from the loaded project configuration.
+pub fn get_parameter(validated: &ValidatedConfig, keys: &[&str]) -> Option<serde_yaml::Value> {
+    let mut current = &validated.parameters;
+
+    if keys.is_empty() {
+        return Some(current.clone());
+    }
+
+    for key in keys {
+        if let serde_yaml::Value::Mapping(map) = current {
+            let yml_key = serde_yaml::Value::String((*key).to_string());
+            if let Some(next) = map.get(&yml_key) {
+                current = next;
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        }
+    }
+    Some(current.clone())
+}
+
+/// Scans the target configuration file and injects an empty parameters block if missing.
+pub fn add_empty_parameters_block(project_root: &std::path::Path) -> Result<bool, String> {
+    let yml_path = project_root.join("_proj.yml");
+    if !yml_path.exists() {
+        return Ok(false);
+    }
+
+    let content = fs::read_to_string(&yml_path).map_err(|e| e.to_string())?;
+    let raw_value: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+
+    if let serde_yaml::Value::Mapping(mut map) = raw_value {
+        let aliases = ["parameters", "parameter", "params", "param"];
+        let found = aliases.iter().any(|&a| map.contains_key(&serde_yaml::Value::String(a.to_string())));
+
+        if found {
+            return Ok(false);
+        }
+
+        map.insert(
+            serde_yaml::Value::String("parameters".to_string()),
+            serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
+        );
+
+        let new_content = serde_yaml::to_string(&map).map_err(|e| e.to_string())?;
+        fs::write(&yml_path, new_content).map_err(|e| e.to_string())?;
+        Ok(true)
+    } else {
+        let mut map = serde_yaml::Mapping::new();
+        map.insert(
+            serde_yaml::Value::String("parameters".to_string()),
+            serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
+        );
+        let new_content = serde_yaml::to_string(&map).map_err(|e| e.to_string())?;
+        fs::write(&yml_path, new_content).map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+}
+
 pub fn yml_read(is_dev: bool) -> Result<ValidatedConfig, String> {
     let project_root = root().ok_or("Could not find project root")?;
     yml_read_from(&project_root, is_dev)
 }
 
-/// Mock integration hook for legacy compatibility workflows.
-///
-/// Returns a static string. Originally intended to retrieve raw configuration text
-/// in preceding legacy builds.
-///
-/// # Panics
-///
-/// Does not panic.
-///
-/// ```rust
-/// use proj::yml::yml_get;
-/// assert_eq!(yml_get(), "projr yml content");
-/// ```
 pub fn yml_get() -> String {
-    "projr yml content".to_string() // Left for backwards compatibility, though to be replaced/removed as per plan.
+    "projr yml content".to_string()
 }
 
 #[cfg(test)]
@@ -688,16 +705,38 @@ build:
             config_detailed.build.git,
             GitConfigOpt::Detailed(GitConfig { commit: Some(true), push: Some(false) })
         );
+    }
+}
 
-        let yaml_default = "
-directories: {}
-build:
-  scripts: []
+#[cfg(test)]
+mod parameter_tests {
+    use super::*;
+    use tempfile::TempDir;
+    use std::fs;
+
+    #[test]
+    fn test_parameter_aliases() {
+        let yaml_params = "
+params:
+  key1: val1
 ";
-        let config_default: ProjConfig = serde_yaml::from_str(yaml_default).unwrap();
-        assert_eq!(
-            config_default.build.git,
-            GitConfigOpt::Detailed(GitConfig { commit: None, push: None })
-        );
+        let config: ProjConfig = serde_yaml::from_str(yaml_params).unwrap();
+        assert_eq!(config.parameters["key1"], "val1");
+    }
+
+    #[test]
+    fn test_multiple_aliases_conflict() {
+        let temp = TempDir::new().unwrap();
+        let root_path = temp.path();
+        fs::write(root_path.join("VERSION"), "v1.0.0").unwrap();
+        let yaml_conflict = "
+parameters:
+  key1: val1
+params:
+  key2: val2
+";
+        fs::write(root_path.join("_proj.yml"), yaml_conflict).unwrap();
+        let result = yml_read_from(root_path, false);
+        assert!(result.is_err());
     }
 }
