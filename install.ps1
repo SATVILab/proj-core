@@ -104,6 +104,9 @@ function Invoke-DownloadAsset([string]$Url, [string]$OutFile) {
         # Convert forward slashes to OS path separators and handle Windows drive
         # letters (e.g. file:///C:/path → C:\path).
         $localPath = $Matches[1] -replace '/', [System.IO.Path]::DirectorySeparatorChar
+        if (-not (Test-Path -LiteralPath $localPath)) {
+            throw "does not exist: $localPath"
+        }
         Copy-Item -LiteralPath $localPath -Destination $OutFile -Force
         return
     }
