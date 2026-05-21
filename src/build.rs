@@ -307,8 +307,9 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     // Isolate execution logic inside catch_unwind
     let pr = project_root.to_path_buf();
     let profile_clone = profile.clone();
+    let build_scripts_clone = build_scripts.clone();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        execute_build_pipeline(&pr, build_scripts, profile_clone, quarto_exists, bookdown_exists, resolved_python_cmd.as_deref())
+        execute_build_pipeline(&pr, build_scripts_clone, profile_clone, quarto_exists, bookdown_exists, resolved_python_cmd.as_deref())
     }));
 
     match result {
@@ -338,6 +339,44 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
             let clear_output_env = std::env::var("PROJR_CLEAR_OUTPUT").ok();
             let clear_output_val = clear_output_env.as_deref().or(config.clear_output.as_deref());
             crate::clear::clear_post(project_root, is_dev, &config, clear_output_val, is_single_doc_engine);
+
+            // Copy docs
+            let should_run_output = config.output_run.unwrap_or(true);
+            if should_run_output {
+                let final_docs_dir = original_docs_path.clone().unwrap_or_else(|| project_root.join("docs"));
+                let cache_docs_dir = project_root.join("_tmp").join("projr").join(&current_version).join("docs");
+
+                if quarto_exists {
+                    let _ = copy_global_quarto_project(&cache_docs_dir, &final_docs_dir);
+                } else if bookdown_exists {
+                    let _ = copy_global_bookdown(&cache_docs_dir, &final_docs_dir, project_root);
+                } else {
+                    // It's a mixed/individual file run
+                    if let Some(scripts) = &build_scripts {
+                        if let Ok(resolved_files) = resolve_explicit_scripts(project_root, scripts) {
+                            for file in resolved_files {
+                                let ext = file.extension().and_then(|s| s.to_str()).unwrap_or("");
+                                if ext == "qmd" {
+                                    let _ = copy_individual_quarto(&file, &final_docs_dir, project_root);
+                                } else if ext == "Rmd" || ext == "rmd" {
+                                    let _ = copy_individual_rmd(&file, &final_docs_dir, project_root);
+                                }
+                            }
+                        }
+                    } else {
+                        if let Ok(resolved_files) = resolve_fallback_scripts(project_root) {
+                            for file in resolved_files {
+                                let ext = file.extension().and_then(|s| s.to_str()).unwrap_or("");
+                                if ext == "qmd" {
+                                    let _ = copy_individual_quarto(&file, &final_docs_dir, project_root);
+                                } else if ext == "Rmd" || ext == "rmd" {
+                                    let _ = copy_individual_rmd(&file, &final_docs_dir, project_root);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             if config.git.commit {
                 let ver_str = initial_version.to_string(false);
@@ -795,6 +834,166 @@ pub(crate) fn resolve_fallback_scripts(project_root: &Path) -> Result<Vec<PathBu
 }
 
 use std::process::Command;
+
+pub fn dir_move_exact(source: &Path, dest: &Path) -> Result<(), String> {
+    if !source.exists() {
+        return Ok(());
+    }
+
+    if dest.exists() {
+        // Clear destination except protected files
+        if dest.is_dir() {
+            if let Ok(entries) = fs::read_dir(dest) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    let name_str = name.to_string_lossy();
+                    // Protected File Exclusion Guard
+                    if name_str == "CHANGELOG.md" || name_str == ".gitignore" || name_str == "README.md" {
+                        continue;
+                    }
+                    if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                        let _ = fs::remove_dir_all(entry.path());
+                    } else {
+                        let _ = fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
+    } else {
+        let _ = fs::create_dir_all(dest);
+    }
+
+    // Now copy everything from source to dest
+    copy_dir_recursive(source, dest).map_err(|e| format!("Failed to copy directory from {} to {}: {}", source.display(), dest.display(), e))?;
+    let _ = fs::remove_dir_all(source);
+
+    Ok(())
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if !src.exists() {
+        return Ok(());
+    }
+    if !dst.exists() {
+        fs::create_dir_all(dst)?;
+    }
+
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let dest_path = dst.join(entry.file_name());
+
+        if ty.is_dir() {
+            copy_dir_recursive(&entry.path(), &dest_path)?;
+        } else {
+            fs::copy(entry.path(), dest_path)?;
+        }
+    }
+    Ok(())
+}
+
+pub fn copy_individual_rmd(file_path: &Path, docs_path: &Path, project_root: &Path) -> Result<(), String> {
+    let content = fs::read_to_string(file_path).unwrap_or_default();
+    let (format, output_file) = crate::build_pre::parse_frontmatter_options(&content);
+    let ext = crate::build_pre::map_format_to_extension(format.as_deref());
+
+    let file_stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let parent_dir = file_path.parent().unwrap_or(project_root);
+
+    // Default Rmd output is usually <stem>.html or <output_file> in the same dir as the .Rmd file
+    let target_file_name = if let Some(of) = output_file {
+        of
+    } else {
+        format!("{}.{}", file_stem, ext)
+    };
+    let target_file = parent_dir.join(&target_file_name);
+
+    let files_dir_name = format!("{}_files", file_stem);
+    let files_dir = parent_dir.join(&files_dir_name);
+
+    if !docs_path.exists() {
+        let _ = fs::create_dir_all(docs_path);
+    }
+
+    if target_file.exists() {
+        let dest_file = docs_path.join(&target_file_name);
+        fs::rename(&target_file, &dest_file).map_err(|e| format!("Failed to move target file {}: {}", target_file.display(), e))?;
+    }
+
+    if files_dir.exists() {
+        let dest_files_dir = docs_path.join(&files_dir_name);
+        dir_move_exact(&files_dir, &dest_files_dir)?;
+    }
+
+    Ok(())
+}
+
+pub fn copy_individual_quarto(file_path: &Path, docs_path: &Path, project_root: &Path) -> Result<(), String> {
+    let content = fs::read_to_string(file_path).unwrap_or_default();
+    let (format, output_file) = crate::build_pre::parse_frontmatter_options(&content);
+    let ext = crate::build_pre::map_format_to_extension(format.as_deref());
+
+    let file_stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let parent_dir = file_path.parent().unwrap_or(project_root);
+
+    let target_file_name = if let Some(of) = output_file {
+        of
+    } else {
+        format!("{}.{}", file_stem, ext)
+    };
+    let target_file = parent_dir.join(&target_file_name);
+
+    let files_dir_name = format!("{}_files", file_stem);
+    let files_dir = parent_dir.join(&files_dir_name);
+
+    if !docs_path.exists() {
+        let _ = fs::create_dir_all(docs_path);
+    }
+
+    if target_file.exists() {
+        let dest_file = docs_path.join(&target_file_name);
+        fs::rename(&target_file, &dest_file).map_err(|e| format!("Failed to move target file {}: {}", target_file.display(), e))?;
+    }
+
+    if files_dir.exists() {
+        let dest_files_dir = docs_path.join(&files_dir_name);
+        dir_move_exact(&files_dir, &dest_files_dir)?;
+    }
+
+    Ok(())
+}
+
+pub fn copy_global_bookdown(cache_docs_dir: &Path, final_docs_dir: &Path, project_root: &Path) -> Result<(), String> {
+    dir_move_exact(cache_docs_dir, final_docs_dir)?;
+
+    // We also need to locate <book_filename>_files and move to final target context.
+    // _bookdown.yml specifies book_filename, defaulting to _main
+    let mut book_filename = "_main".to_string();
+    let bookdown_yml = project_root.join("_bookdown.yml");
+    if bookdown_yml.exists() {
+        let content = fs::read_to_string(&bookdown_yml).unwrap_or_default();
+        if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+            if let Some(map) = yaml.as_mapping() {
+                if let Some(bf) = map.get("book_filename").and_then(|v| v.as_str()) {
+                    book_filename = bf.to_string();
+                }
+            }
+        }
+    }
+
+    let files_dir_name = format!("{}_files", book_filename);
+    let files_dir = project_root.join(&files_dir_name);
+    if files_dir.exists() {
+        let dest_files_dir = final_docs_dir.join(&files_dir_name);
+        dir_move_exact(&files_dir, &dest_files_dir)?;
+    }
+
+    Ok(())
+}
+
+pub fn copy_global_quarto_project(cache_docs_dir: &Path, final_docs_dir: &Path) -> Result<(), String> {
+    dir_move_exact(cache_docs_dir, final_docs_dir)
+}
 
 /// Executes a single script in an isolated subprocess.
 fn execute_script(script_path: &Path, profile: Option<&str>, resolved_python_cmd: Option<&str>) -> Result<(), String> {

@@ -113,6 +113,7 @@ pub struct BuildConfig {
     #[serde(default)]
     pub restrictions: RestrictionsConfig,
     pub clear_output: Option<String>,
+    pub output_run: Option<bool>,
 }
 
 #[derive(Deserialize, Debug, Default, Clone, PartialEq)]
@@ -234,7 +235,7 @@ fn default_ignore() -> IgnoreConfig {
 ///     directories: HashMap::new(), 
 ///     git: ResolvedGitConfig { commit: false, push: false }, 
 ///     restrictions: RestrictionsConfig::default(), 
-///     clear_output: None, 
+///     clear_output: None, output_run: None,
 ///     old_dev_remove: None 
 /// };
 /// ```
@@ -246,6 +247,7 @@ pub struct ValidatedConfig {
     pub git: ResolvedGitConfig,
     pub restrictions: RestrictionsConfig,
     pub clear_output: Option<String>,
+    pub output_run: Option<bool>,
     pub old_dev_remove: Option<bool>,
 }
 
@@ -389,6 +391,7 @@ impl ProjConfig {
             git: resolved_git,
             restrictions: self.build.restrictions.clone(),
             clear_output: self.build.clear_output.clone(),
+            output_run: self.build.output_run,
             old_dev_remove: self.dev.old_dev_remove,
         })
     }
@@ -420,7 +423,7 @@ impl ValidatedConfig {
     ///     directories: dirs, 
     ///     git: ResolvedGitConfig { commit: false, push: false }, 
     ///     restrictions: RestrictionsConfig::default(), 
-    ///     clear_output: None, 
+    ///     clear_output: None, output_run: None,
     ///     old_dev_remove: None 
     /// };
     /// let path = config.get_path(&PathBuf::from("/mock/root"), "raw-data").unwrap();

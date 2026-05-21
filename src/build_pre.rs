@@ -20,6 +20,73 @@ pub fn pre_flight_git_check(config: &GlobalConfig, repo_dir: PathBuf) -> Result<
     Ok(())
 }
 
+/// Extracts the YAML frontmatter sequence from the beginning of a document.
+pub fn extract_frontmatter(content: &str) -> Option<String> {
+    let mut lines = content.lines();
+    if let Some(first) = lines.next() {
+        if first.trim() != "---" {
+            return None;
+        }
+    } else {
+        return None;
+    }
+
+    let mut frontmatter = String::new();
+    for line in lines {
+        if line.trim() == "---" {
+            return Some(frontmatter);
+        }
+        frontmatter.push_str(line);
+        frontmatter.push('\n');
+    }
+    None
+}
+
+/// Parses the frontmatter to extract the target format and output-file keys.
+pub fn parse_frontmatter_options(content: &str) -> (Option<String>, Option<String>) {
+    let mut format = None;
+    let mut output_file = None;
+
+    if let Some(fm) = extract_frontmatter(content) {
+        if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&fm) {
+            if let Some(map) = yaml.as_mapping() {
+                if let Some(f) = map.get("format").and_then(|v| v.as_str()) {
+                    format = Some(f.to_string());
+                } else if let Some(o) = map.get("output") {
+                    if let Some(s) = o.as_str() {
+                        format = Some(s.to_string());
+                    } else if let Some(omap) = o.as_mapping() {
+                        if let Some(k) = omap.keys().next() {
+                            if let Some(s) = k.as_str() {
+                                format = Some(s.to_string());
+                            }
+                        }
+                    }
+                }
+
+                if let Some(of) = map.get("output-file").or_else(|| map.get("output_file")) {
+                    if let Some(s) = of.as_str() {
+                        output_file = Some(s.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    (format, output_file)
+}
+
+/// Maps a document format to its output file extension.
+pub fn map_format_to_extension(format: Option<&str>) -> String {
+    let format_str = format.unwrap_or("html");
+    match format_str {
+        "html_notebook" => "nb.html".to_string(),
+        "word_document" => "docx".to_string(),
+        "beamer_presentation" | "typst" => "pdf".to_string(),
+        _ => "html".to_string()
+    }
+}
+
 pub fn find_python_command() -> Option<String> {
     let variants = ["python3", "python"];
     for cmd in variants {
@@ -285,4 +352,31 @@ fn is_behind_remote(project_root: &std::path::Path, token: Option<&str>) -> Resu
 
     // If the above fails (e.g., no upstream configured, though we check it prior), assume not behind or return error
     Err("Failed to determine if the local branch is behind the remote.".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_frontmatter() {
+        let content = "---\ntitle: abc\nformat: html_notebook\n---\nBody";
+        assert_eq!(extract_frontmatter(content).unwrap(), "title: abc\nformat: html_notebook\n");
+
+        let content2 = "No frontmatter";
+        assert!(extract_frontmatter(content2).is_none());
+    }
+
+    #[test]
+    fn test_parse_frontmatter_options() {
+        let content = "---\ntitle: abc\nformat: html_notebook\noutput-file: out.html\n---\nBody";
+        let (fmt, of) = parse_frontmatter_options(content);
+        assert_eq!(fmt, Some("html_notebook".to_string()));
+        assert_eq!(of, Some("out.html".to_string()));
+
+        let content_rmd = "---\noutput:\n  word_document: default\noutput_file: test.docx\n---\nBody";
+        let (fmt, of) = parse_frontmatter_options(content_rmd);
+        assert_eq!(fmt, Some("word_document".to_string()));
+        assert_eq!(of, Some("test.docx".to_string()));
+    }
 }
