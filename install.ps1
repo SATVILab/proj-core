@@ -95,7 +95,8 @@ $tmpFile = Join-Path ([System.IO.Path]::GetTempPath()) "$binaryName-$PID.exe"
 
 $assets = @(
     "${binaryName}_${osName}_${archName}.exe",
-    "${binaryName}-${osName}-${archName}.exe"
+    "${binaryName}-${osName}-${archName}.exe",
+    "${binaryName}.exe"
 )
 
 function Invoke-DownloadAsset([string]$Url, [string]$OutFile) {
@@ -123,7 +124,7 @@ foreach ($asset in $assets) {
             $statusCode = [int]$_.Exception.Response.StatusCode
         }
         $message = $_.Exception.Message
-        if ($statusCode -eq 404 -or $message -match '404') {
+        if ($statusCode -eq 404 -or $message -match '404' -or $message -match 'does not exist') {
             Write-Warning "Asset ${asset} not found at ${url}"
             continue
         }
