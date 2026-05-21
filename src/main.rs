@@ -19,12 +19,27 @@ enum Commands {
         #[command(subcommand)]
         command: VersionCommands,
     },
+    /// Path related operations
+    Path {
+        #[command(subcommand)]
+        command: PathCommands,
+    },
 }
 
 #[derive(Subcommand)]
 enum YmlCommands {
-    /// Get the projr yml content
-    Get,
+    /// Read the projr yml content and trigger validation
+    Read,
+}
+
+#[derive(Subcommand)]
+enum PathCommands {
+    /// Get the resolved path for a given label
+    Get {
+        /// The label of the directory to get
+        #[arg(long)]
+        label: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -51,9 +66,28 @@ fn main() {
 
     match &cli.command {
         Commands::Yml { command } => match command {
-            YmlCommands::Get => {
-                let result = proj::yml_get();
-                println!("{}", result);
+            YmlCommands::Read => {
+                match proj::yml_read() {
+                    Ok(_) => println!("Successfully read and validated _proj.yml"),
+                    Err(e) => eprintln!("Error reading _proj.yml: {}", e),
+                }
+            }
+        },
+        Commands::Path { command } => match command {
+            PathCommands::Get { label } => {
+                match proj::yml_read() {
+                    Ok(config) => {
+                        if let Some(root) = proj::root() {
+                            match config.get_path(&root, label) {
+                                Ok(path) => println!("{}", path.display()),
+                                Err(e) => eprintln!("Error getting path: {}", e),
+                            }
+                        } else {
+                            eprintln!("Error finding project root");
+                        }
+                    }
+                    Err(e) => eprintln!("Error loading configuration: {}", e),
+                }
             }
         },
         Commands::Version { command } => match command {
