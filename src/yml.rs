@@ -25,6 +25,8 @@ pub struct ProjConfig {
     pub directories: HashMap<String, DirConfig>,
     #[serde(default)]
     pub build: BuildConfig,
+    #[serde(default)]
+    pub dev: DevConfig,
 }
 
 /// Represents the build configuration options within `_proj.yml`.
@@ -52,6 +54,24 @@ impl Default for RestrictionsConfig {
             not_branches: None,
             not_behind: None, // Omitted means implicitly true
         }
+    }
+}
+
+#[derive(Deserialize, Debug, Default, Clone, PartialEq)]
+pub struct DevConfig {
+    pub scripts: Option<Vec<String>>,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(untagged)]
+pub enum GitConfigOpt {
+    Boolean(bool),
+    Detailed(GitConfig),
+}
+
+impl Default for GitConfigOpt {
+    fn default() -> Self {
+        GitConfigOpt::Detailed(GitConfig::default())
     }
 }
 
