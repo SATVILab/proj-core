@@ -1,0 +1,50 @@
+name: Rust Version and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Exact version (e.g. 1.2.3). Cannot be used with bump_type.'
+        required: false
+      bump_type:
+        description: 'Component to bump: major | minor | patch. Cannot be used with version.'
+        required: false
+      version_force:
+        description: 'Run strict version progression checks (true/false).'
+        required: false
+      rust_version:
+        description: 'Rust version to install.'
+        required: false
+      apt_repo:
+        description: 'Optional target GitHub repository in owner/name form for publishing generated .deb artifacts.'
+        required: false
+        default: MiguelRodo/apt-miguelrodo
+      apt_repo_token:
+        description: 'Optional token for apt_repo access when publishing to a different repository.'
+        required: false
+      apt_signing_key:
+        description: 'Optional ASCII-armored GPG private key for signing apt repository metadata.'
+        required: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: MiguelRodo/actions/rust-version-release@v2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          apt_repo_token: ${{ secrets.APT_REPO_TOKEN }}
+          apt_signing_key: ${{ secrets.APT_SIGNING_KEY }}
+          apt_signing_key_passphrase: ${{ secrets.APT_SIGNING_KEY_PASSPHRASE }}
+          version: ${{ inputs.version }}
+          bump_type: ${{ inputs.bump_type }}
+          version_force: ${{ inputs.version_force }}
+          rust_version: ${{ inputs.rust_version }}
