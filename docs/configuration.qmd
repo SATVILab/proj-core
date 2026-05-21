@@ -28,6 +28,12 @@ The system performs strict validation on `_proj.yml`:
 - If a defined directory label uses an unsupported prefix layout, a validation error string will be returned and execution will fail.
 - All references must resolve correctly; otherwise, the CLI will output an error detailing the structurally invalid labels or malformed content.
 
+## Top-Level Configuration
+
+The `_proj.yml` file supports a top-level `config` block for project-wide settings:
+
+- **`config.git.use_proj_cred_helper`**: Boolean (defaults to `true`). Enables the project's internal GitHub token discovery and credential injection for required remote Git operations. It evaluates sources in strict order (Environment variables `GITHUB_PAT`/`GH_TOKEN`/`GITHUB_TOKEN`, system Git credential helper, and GitHub CLI) to securely override credentials per-command and prevent freezing on interactive prompts.
+
 ## Build Configuration
 
 The `_proj.yml` file can also contain a `build` block to configure the behavior of the `proj build` and `proj build-dev` execution engine. The `build` block supports the following sub-keys:

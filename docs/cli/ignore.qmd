@@ -12,7 +12,7 @@ Unlike automatic configurations driven by `_proj.yml`, these manual entries repr
 
 - `<PATHS>...`: One or more raw file or directory paths to be ignored.
 - `--force-create`: Boolean flag (default `true`). If true, creates ignore files if they don't exist. If false, skips file creation unless inherently warranted by environmental cues (e.g. finding a `.git` folder or a `DESCRIPTION` file).
-- `--type`: Optional filter selection (`all` [default], `git`, `rbuild`). Determines which tracking surface receives the manual path entries.
+- `--type`: Optional filter selection (`all` [default], `git`, `rbuild`). Determines which tracking surface receives the manual path entries. Note that `.Rbuildignore` is skipped entirely if no `DESCRIPTION` file exists at the project root.
 
 ## `proj ignore remove`
 
