@@ -1,0 +1,21 @@
+# `proj build`
+
+The build pipeline script execution engine for the project.
+
+This command evaluates what files need to be run based on configuration layout parameters (`build.scripts` in `_proj.yml`) or filesystem auto-discovery. It sorts them according to strict engine precedence rules, modifies format-specific configuration templates when necessary, and executes each script inside its own independent, isolated subprocess.
+
+## Features
+
+- **Mutual Exclusion Checking:** Before executing, `proj build` checks for project-level configurations (`_quarto.yml` and `_bookdown.yml`). If both exist and the build targets include Quarto or RMarkdown documents, it throws an error to prevent conflicting rendering.
+- **Explicit Execution (Path A):**
+  - Define exact scripts, exclusions (starting with `!`), or sub-directory globs in `_proj.yml` under `build.scripts`.
+  - Can rewrite `_quarto.yml` or `_bookdown.yml` configuration if specific subset documents are requested.
+  - Maintains order relative to Python and R scripts, while correctly clustering and executing project documents together.
+- **Fallback Execution (Path B):**
+  - If no `build.scripts` is provided, the engine auto-discovers build targets.
+  - Will execute a Quarto project if `_quarto.yml` exists, or a Bookdown project if `_bookdown.yml` exists.
+  - Otherwise, it falls back to a shallow workspace sweep and runs `.qmd`, `.Rmd`, `.R`, and `.py` files in that strict order.
+
+## Isolation
+
+Every resolved file or project rendering task runs inside its own completely independent subprocess, isolated via environment profiles (`PROJR_PROFILE`) and correct working directory assignments (`current_dir`), preventing memory leaks and state pollution across execution runs.

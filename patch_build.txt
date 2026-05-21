@@ -1,0 +1,127 @@
+<<<<<<< SEARCH
+    // Mutual Exclusion Error (Rule 1 & 2)
+    if quarto_exists && bookdown_exists {
+        let is_violation = match &build_scripts {
+            None => true,
+            Some(scripts) => {
+                scripts.iter().any(|s| s.ends_with(".qmd") || s.ends_with(".Rmd"))
+            }
+        };
+
+        if is_violation {
+            return Err("Mutual Exclusion Error: Both _quarto.yml and _bookdown.yml exist in the workspace, and the build.scripts key in _proj.yml is omitted or includes .qmd or .Rmd files. Aborting build.".to_string());
+        }
+    }
+
+    Ok(())
+}
+=======
+    // Mutual Exclusion Error (Rule 1 & 2)
+    if quarto_exists && bookdown_exists {
+        let is_violation = match &build_scripts {
+            None => true,
+            Some(scripts) => {
+                scripts.iter().any(|s| s.ends_with(".qmd") || s.ends_with(".Rmd"))
+            }
+        };
+
+        if is_violation {
+            return Err("Mutual Exclusion Error: Both _quarto.yml and _bookdown.yml exist in the workspace, and the build.scripts key in _proj.yml is omitted or includes .qmd or .Rmd files. Aborting build.".to_string());
+        }
+    }
+
+    let mut execution_plan = Vec::new();
+
+    if let Some(scripts) = build_scripts {
+        // Path A: Explicit Configuration via build.scripts
+        let resolved_files = resolve_explicit_scripts(project_root, &scripts)?;
+
+        if resolved_files.is_empty() {
+            // The Explicit Empty Exception ("Don't Run Anything")
+            return Ok(());
+        }
+
+        let mut doc_files = Vec::new();
+        let mut data_files = Vec::new();
+
+        for file in &resolved_files {
+            let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext == "qmd" || ext == "Rmd" {
+                doc_files.push(file.clone());
+            } else if ext == "R" || ext == "py" {
+                data_files.push(file.clone());
+            }
+        }
+
+        if quarto_exists && !doc_files.is_empty() {
+            rewrite_quarto_yml(project_root, &doc_files)?;
+            execution_plan.push(Box::new(move || execute_project_render(project_root, true, profile.as_deref())) as Box<dyn FnOnce() -> Result<(), String>>);
+        } else if bookdown_exists && !doc_files.is_empty() {
+            rewrite_bookdown_yml(project_root, &doc_files)?;
+            execution_plan.push(Box::new(move || execute_project_render(project_root, false, profile.as_deref())) as Box<dyn FnOnce() -> Result<(), String>>);
+        }
+
+        // Reordering constraint: scripts must be grouped. Data munging before docs?
+        // Let's just execute them individually but clustered.
+        // Reordering Constraint: "project documents must be clustered together and rendered after any preceding Python or R scripts. Any Python or R scripts specified after document markers will then execute last."
+        let mut pre_scripts = Vec::new();
+        let mut post_scripts = Vec::new();
+        let mut seen_doc = false;
+
+        for file in resolved_files {
+            let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext == "qmd" || ext == "Rmd" {
+                seen_doc = true;
+            } else if ext == "R" || ext == "py" {
+                if seen_doc {
+                    post_scripts.push(file);
+                } else {
+                    pre_scripts.push(file);
+                }
+            }
+        }
+
+        // Execute pre-scripts
+        for script in pre_scripts {
+            let p = profile.clone();
+            execute_script(&script, p.as_deref())?;
+        }
+
+        // Execute doc clusters
+        if quarto_exists && !doc_files.is_empty() {
+            let p = profile.clone();
+            execute_project_render(project_root, true, p.as_deref())?;
+        } else if bookdown_exists && !doc_files.is_empty() {
+            let p = profile.clone();
+            execute_project_render(project_root, false, p.as_deref())?;
+        } else {
+            // Execute docs individually if no project file
+            for doc in doc_files {
+                let p = profile.clone();
+                execute_script(&doc, p.as_deref())?;
+            }
+        }
+
+        // Execute post-scripts
+        for script in post_scripts {
+            let p = profile.clone();
+            execute_script(&script, p.as_deref())?;
+        }
+
+    } else {
+        // Path B: Fallback Automated Auto-Discovery
+        if quarto_exists {
+            execute_project_render(project_root, true, profile.as_deref())?;
+        } else if bookdown_exists {
+            execute_project_render(project_root, false, profile.as_deref())?;
+        } else {
+            let resolved_files = resolve_fallback_scripts(project_root)?;
+            for file in resolved_files {
+                execute_script(&file, profile.as_deref())?;
+            }
+        }
+    }
+
+    Ok(())
+}
+>>>>>>> REPLACE
