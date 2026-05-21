@@ -49,7 +49,7 @@ impl Default for IgnoreType {
 ///     ignore: IgnoreConfig::Single("all".to_string())
 /// });
 ///
-/// let validated = ValidatedConfig { directories: dirs, git: ResolvedGitConfig { commit: false, push: false }, restrictions: RestrictionsConfig::default() };
+/// let validated = ValidatedConfig { directories: dirs, git: ResolvedGitConfig { commit: false, push: false }, restrictions: RestrictionsConfig::default(), clear_output: None, old_dev_remove: None };
 /// update_ignores_for(&root, &validated).unwrap();
 ///
 /// assert!(root.join(".gitignore").exists());
