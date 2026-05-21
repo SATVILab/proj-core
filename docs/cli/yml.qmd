@@ -1,0 +1,12 @@
+# `proj yml get`
+
+Read the `_proj.yml` content and trigger validation and initialization.
+
+## Reading Parameters and Defaults
+
+When `proj yml get` is executed, the tool automatically resolves parameters and defaults from the file.
+
+1. **Parameter Resolution:** It scans the explicitly provided configurations. If you defined custom directory labels mapped to absolute or relative paths, it retrieves them directly.
+2. **Dynamic Injections:** Missing path parameters under valid foundational prefixes will automatically receive their default injection (e.g., an empty `cache` block resolves to the path `_tmp`).
+3. **Implicit Base Defaults:** Foundational prefixes that are not explicitly stated in the configuration will be seamlessly injected as default base targets during execution.
+4. **Ignore Synchronization:** Reading the YAML file naturally triggers the ignore demarcation engine, applying standard ignore behaviors to `.gitignore` and `.Rbuildignore` dynamically based on the verified settings.

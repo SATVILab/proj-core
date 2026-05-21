@@ -1,0 +1,39 @@
+# `proj version get`
+
+Get the project version based on the `VERSION` file.
+
+## Standard Behavior
+
+The command searches upwards from the current directory to discover the project root containing the `VERSION` file. It parses the version text (supporting both raw strings like `v1.0.0` or JSON objects) and resolves it to a standard output.
+
+```bash
+proj version get
+```
+
+## Options
+
+### `--no-v`
+
+Omits the 'v' prefix from the output string.
+
+```bash
+proj version get --no-v
+```
+
+### `--format <FORMAT>`
+
+Specifies the output format:
+- `text` (default): Outputs the version as a standard string identifier.
+- `json`: Outputs the version as a serialized JSON object, detailing its properties (`major`, `minor`, `patch`, and optionally `dev`).
+
+```bash
+proj version get --format json
+```
+
+## JSON Output Properties
+
+When using `--format=json`, the output consists of the separated standard semantic components:
+- `major` (integer)
+- `minor` (integer)
+- `patch` (integer)
+- `dev` (integer, optional, indicating build cycles or pre-release versioning)

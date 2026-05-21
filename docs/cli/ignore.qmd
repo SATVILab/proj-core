@@ -1,0 +1,26 @@
+# `proj ignore --auto`
+
+Automatically synchronizes ignore rules dynamically across `.gitignore` and `.Rbuildignore` based on the configuration of `_proj.yml`.
+
+> **Note:** While the `ignore` command is invoked implicitly by the CLI via `proj yml read` and doesn't appear openly as a standalone explicit command argument natively exposed in the `proj --help` terminal menu directly, it behaves consistently under the hood via the ignore demarcation engine applying the automated `--auto` behaviors seamlessly.
+
+## Automated Root Scans
+
+The tool automatically locates the project boundaries via a heuristic upward path traversal. It begins checking from the user's current working directory upward:
+- It discovers the conceptual root by finding a directory containing a `VERSION` file.
+- It continues upward through up to 5 directory levels seeking an optimal foundational root confirming the presence of either `_proj.yml` or a `.git` tracking context alongside the `VERSION`.
+
+## Protected Exceptions File List
+
+The tool targets specifically two core exception list files:
+- `.gitignore` (safeguards `git` commit environments)
+- `.Rbuildignore` (safeguards strict CRAN environments and `rbuild` processes)
+
+Based on the individual block `ignore` settings within `_proj.yml` (e.g. `ignore: all`), properties are intelligently resolved as standard `git` glob patterns and `Rbuild` regex match patterns appropriately.
+
+## Demarcation Slice Logic
+
+Modifications made by the tool into `.gitignore` and `.Rbuildignore` are safely strictly demarcated with protected slice logic block comments. This preserves user-defined modifications outside the managed span:
+- Operations scan for `# --- PROJ MANAGED ---` and `# --- END PROJ MANAGED ---`.
+- Targeted slice elements are swapped or appended into existing scopes only between these exact markers.
+- If the boundary blocks are absent, the tool automatically injects them natively at the base end.
