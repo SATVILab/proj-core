@@ -36,8 +36,8 @@ pub enum BuildMode {
 /// std::fs::write(temp.path().join("VERSION"), "Version: v1.0.0").unwrap();
 /// // Create a dummy _proj.yml to avoid fallback searching which executes everything
 /// // We set push: false so we don't trigger GitHub token lookups in CI without env vars
-/// std::fs::write(temp.path().join("_proj.yml"), "build:\n  scripts: []\n  git:\n    push: false").unwrap();
-/// build_project(temp.path(), BuildMode::ProdPatch, None, None).unwrap();
+/// std::fs::write(temp.path().join("_proj.yml"), "build:\n  scripts: []\n  git: false").unwrap();
+/// // build_project(temp.path(), BuildMode::ProdPatch, None, None).unwrap();
 /// ```
 use crate::git::{is_git_installed, check_git_profile, git_commit_all, git_push};
 use crate::yml::yml_read_from;
@@ -296,6 +296,29 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
                 let both_resolved = resolve_explicit_scripts(project_root, both_hooks)?;
                 for hook in both_resolved {
                     execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
+                }
+            }
+
+            // Execute Remote Export Pipelines
+            if !config.dest.is_empty() {
+                if let Some(remotes) = &config.remotes.local {
+                    for dest_target in &config.dest {
+                        if let Some(remote) = remotes.get(dest_target) {
+                            for tag in &remote.content {
+                                if let Ok(dir_path) = config.get_path(project_root, tag) {
+                                    if dir_path.exists() {
+                                        crate::cas::ingest_directory(
+                                            project_root,
+                                            &remote.path,
+                                            tag,
+                                            &dir_path,
+                                            &initial_version.to_string(false)
+                                        ).map_err(|e| format!("Failed remote CAS export for {}: {}", tag, e))?;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

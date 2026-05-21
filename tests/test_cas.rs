@@ -1,4 +1,6 @@
-use proj::cas::ingest_directory;
+use proj::cas::{ingest_directory, verify_remote_integrity};
+use proj::yml::{ValidatedConfig, RemotesConfig, LocalRemoteConfig, StorageStructure, InspectStrategy};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -108,4 +110,50 @@ fn walkdir(dir: &std::path::Path) -> Vec<PathBuf> {
         }
     }
     paths
+}
+
+#[test]
+fn test_verify_remote_integrity() {
+    let root = tempdir().unwrap();
+    let cas_remote_root = root.path().join("cas");
+    let project_root = root.path().join("proj");
+    fs::create_dir_all(&project_root).unwrap();
+    fs::create_dir_all(&cas_remote_root).unwrap();
+    let source_dir = project_root.join("data").join("raw");
+    fs::create_dir_all(&source_dir).unwrap();
+    fs::write(source_dir.join("file1.txt"), "content A").unwrap();
+
+    ingest_directory(
+        &project_root,
+        &cas_remote_root,
+        "raw",
+        &source_dir,
+        "1.0.0"
+    ).unwrap();
+
+    let mut remotes = HashMap::new();
+    remotes.insert("my_remote".to_string(), LocalRemoteConfig {
+        path: cas_remote_root.clone(),
+        structure: StorageStructure::Cas,
+        content: vec!["raw".to_string()],
+        inspect: InspectStrategy::Manifest,
+    });
+
+    let config = ValidatedConfig {
+        remotes: RemotesConfig { local: Some(remotes.clone()) },
+        dest: vec![],
+        config: Default::default(),
+        directories: HashMap::new(),
+        git: proj::yml::ResolvedGitConfig { commit: false, push: false },
+        restrictions: Default::default(),
+        clear_output: None,
+        old_dev_remove: None,
+    };
+
+    assert!(verify_remote_integrity("my_remote", &config).is_ok());
+
+    let mut config_file = config;
+    remotes.get_mut("my_remote").unwrap().inspect = InspectStrategy::File;
+    config_file.remotes.local = Some(remotes);
+    assert!(verify_remote_integrity("my_remote", &config_file).is_ok());
 }

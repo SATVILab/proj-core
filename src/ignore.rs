@@ -49,7 +49,7 @@ impl Default for IgnoreType {
 ///     ignore: IgnoreConfig::Single("all".to_string())
 /// });
 ///
-/// let validated = ValidatedConfig { 
+/// let validated = ValidatedConfig { remotes: Default::default(), dest: vec![],
 ///     config: GlobalConfig::default(), 
 ///     directories: dirs, 
 ///     git: ResolvedGitConfig { commit: false, push: false }, 

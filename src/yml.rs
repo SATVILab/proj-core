@@ -19,8 +19,37 @@ use crate::ignore::{root, update_ignores};
 /// let config = ProjConfig::default();
 /// assert!(config.directories.is_empty());
 /// ```
+
+#[derive(Deserialize, Debug, Default, Clone)]
+pub struct RemotesConfig {
+    pub local: Option<HashMap<String, LocalRemoteConfig>>,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum StorageStructure {
+    Cas,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum InspectStrategy {
+    Manifest,
+    File,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct LocalRemoteConfig {
+    pub path: PathBuf,
+    pub structure: StorageStructure,
+    pub content: Vec<String>,
+    pub inspect: InspectStrategy,
+}
+
 #[derive(Deserialize, Debug, Default, Clone)]
 pub struct ProjConfig {
+    #[serde(default)]
+    pub remotes: RemotesConfig,
     #[serde(default)]
     pub config: GlobalConfig,
     #[serde(default)]
@@ -60,6 +89,7 @@ fn default_use_proj_cred_helper() -> bool {
 /// Represents the build configuration options within `_proj.yml`.
 #[derive(Deserialize, Debug, Default, Clone)]
 pub struct BuildConfig {
+    pub dest: Option<Vec<String>>,
     pub scripts: Option<Vec<String>>,
     #[serde(default)]
     pub hooks: HooksConfig,
@@ -185,7 +215,7 @@ fn default_ignore() -> IgnoreConfig {
 /// ```rust
 /// use std::collections::HashMap;
 /// use proj::yml::{ValidatedConfig, ResolvedGitConfig, RestrictionsConfig, GlobalConfig};
-/// let config = ValidatedConfig { 
+/// let config = ValidatedConfig { remotes: Default::default(), dest: vec![],
 ///     config: GlobalConfig::default(), 
 ///     directories: HashMap::new(), 
 ///     git: ResolvedGitConfig { commit: false, push: false }, 
@@ -195,6 +225,8 @@ fn default_ignore() -> IgnoreConfig {
 /// };
 /// ```
 pub struct ValidatedConfig {
+    pub remotes: RemotesConfig,
+    pub dest: Vec<String>,
     pub config: GlobalConfig,
     pub directories: HashMap<String, ResolvedDir>,
     pub git: ResolvedGitConfig,
@@ -237,6 +269,19 @@ impl ProjConfig {
     /// ```
     pub fn validate_and_resolve(&self, project_root: &std::path::Path, is_dev: bool) -> Result<ValidatedConfig, String> {
         let mut resolved = HashMap::new();
+
+        // 0. Validate Structural Constraints
+        if let Some(dest) = &self.build.dest {
+            if let Some(remotes) = &self.remotes.local {
+                for dest_tag in dest {
+                    if !remotes.contains_key(dest_tag) {
+                        return Err(format!("Build destination target '{}' is not registered in remotes.local inventory.", dest_tag));
+                    }
+                }
+            } else {
+                 return Err("build.dest contains targets but remotes.local is completely undefined.".to_string());
+            }
+        }
 
         // 1. Process explicit user configurations
         for (label, config) in &self.directories {
@@ -323,6 +368,8 @@ impl ProjConfig {
         }
 
         Ok(ValidatedConfig {
+            remotes: self.remotes.clone(),
+            dest: self.build.dest.clone().unwrap_or_default(),
             config: self.config.clone(),
             directories: resolved,
             git: resolved_git,
@@ -354,7 +401,7 @@ impl ValidatedConfig {
     ///     ignore: IgnoreConfig::Single("all".to_string())
     /// });
     ///
-    /// let config = ValidatedConfig { 
+    /// let config = ValidatedConfig { remotes: Default::default(), dest: vec![],
     ///     config: GlobalConfig::default(), 
     ///     directories: dirs, 
     ///     git: ResolvedGitConfig { commit: false, push: false }, 
