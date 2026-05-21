@@ -23,6 +23,14 @@ use crate::ignore::{root, update_ignores};
 pub struct ProjConfig {
     #[serde(default)]
     pub directories: HashMap<String, DirConfig>,
+    pub build: Option<BuildConfig>,
+}
+
+/// Represents the build configuration options within `_proj.yml`.
+#[derive(Deserialize, Debug, Default, Clone)]
+pub struct BuildConfig {
+    pub scripts: Option<Vec<String>>,
+    pub profile: Option<String>,
 }
 
 /// Represents the configuration for a single directory entry within `_proj.yml`.

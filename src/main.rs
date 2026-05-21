@@ -50,6 +50,12 @@ pub enum Commands {
         #[command(subcommand)]
         command: PathCommands,
     },
+    /// Build operations
+    Build {
+        /// Optional profile
+        #[arg(long)]
+        profile: Option<String>,
+    },
 }
 
 /// Operations specific to the `_proj.yml` configuration file.
@@ -148,6 +154,19 @@ fn main() {
                     }
                     Err(e) => eprintln!("Error loading configuration: {}", e),
                 }
+            }
+        },
+        Commands::Build { profile } => {
+            if let Some(root) = proj::root() {
+                if let Err(e) = proj::build_project(&root, profile.as_deref()) {
+                    eprintln!("Build failed: {}", e);
+                    std::process::exit(1);
+                } else {
+                    println!("Build completed successfully.");
+                }
+            } else {
+                eprintln!("Error finding project root");
+                std::process::exit(1);
             }
         },
         Commands::Version { command } => match command {
