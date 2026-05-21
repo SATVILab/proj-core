@@ -36,8 +36,8 @@ pub enum BuildMode {
 /// std::fs::write(temp.path().join("VERSION"), "Version: v1.0.0").unwrap();
 /// // Create a dummy _proj.yml to avoid fallback searching which executes everything
 /// // We set push: false so we don't trigger GitHub token lookups in CI without env vars
-/// std::fs::write(temp.path().join("_proj.yml"), "build:\n  scripts: []\n  git: false").unwrap();
-/// // build_project(temp.path(), BuildMode::ProdPatch, None, None).unwrap();
+/// std::fs::write(temp.path().join("_proj.yml"), "build:\n  scripts: []\n  git:\n    commit: false\n    push: false\nconfig:\n  git:\n    use_proj_cred_helper: false").unwrap();
+/// build_project(temp.path(), BuildMode::ProdPatch, None, None).unwrap();
 /// ```
 use crate::git::{is_git_installed, check_git_profile, git_commit_all, create_git_provider};
 use crate::yml::{yml_read_from, GlobalConfig};
