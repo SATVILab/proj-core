@@ -1,7 +1,24 @@
 use std::path::PathBuf;
 use std::process::Command;
 use std::io::{self, BufRead, IsTerminal};
-use crate::git::{get_github_token, execute_authenticated_git};
+use crate::git::{get_github_token, execute_authenticated_git, create_git_provider};
+use crate::yml::GlobalConfig;
+
+pub fn pre_flight_git_check(config: &GlobalConfig, repo_dir: PathBuf) -> Result<(), String> {
+    let provider = create_git_provider(config.git.engine, repo_dir)?;
+
+    // Check if user has context configurations mapped out
+    let name = provider.get_user_name().unwrap_or_else(|| "Unknown".to_string());
+    let email = provider.get_user_email().unwrap_or_else(|| "unknown@example.com".to_string());
+
+    println!("Git context verified successfully for R workflow: {} <{}>", name, email);
+
+    if provider.is_behind_remote("origin", "main").unwrap_or(false) {
+        println!("⚠️ Warning: Current local HEAD is behind origin/main.");
+    }
+
+    Ok(())
+}
 
 pub fn find_python_command() -> Option<String> {
     let variants = ["python3", "python"];
@@ -35,6 +52,11 @@ pub fn run_pre_flight_checks(
 
     if is_prod_run {
         let is_git_repo = project_root.join(".git").exists();
+
+        // Run the new pre_flight_git_check if it's a git repo and git is configured
+        if is_git_repo {
+            pre_flight_git_check(&config.config, project_root.to_path_buf())?;
+        }
 
         let mut current_branch = None;
         if is_git_repo {

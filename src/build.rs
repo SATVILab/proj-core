@@ -39,9 +39,21 @@ pub enum BuildMode {
 /// std::fs::write(temp.path().join("_proj.yml"), "build:\n  scripts: []\n  git:\n    commit: false\n    push: false\nconfig:\n  git:\n    use_proj_cred_helper: false").unwrap();
 /// build_project(temp.path(), BuildMode::ProdPatch, None, None).unwrap();
 /// ```
-use crate::git::{is_git_installed, check_git_profile, git_commit_all, git_push};
-use crate::yml::yml_read_from;
+use crate::git::{is_git_installed, check_git_profile, git_commit_all, create_git_provider};
+use crate::yml::{yml_read_from, GlobalConfig};
 use crate::build_pre::run_pre_flight_checks;
+
+pub fn post_build_sync(config: &GlobalConfig, repo_dir: PathBuf) -> Result<(), String> {
+    let provider = create_git_provider(config.git.engine, repo_dir)?;
+
+    println!("Staging build artifacts and committing mutations...");
+    provider.commit_all("chore: automated workspace build update [compiled asset tracking]")?;
+
+    println!("Pushing local branch mutations to remote host...");
+    provider.push("origin", "main")?;
+
+    Ok(())
+}
 
 pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&str>, description: Option<&str>) -> Result<(), String> {
     let is_dev = mode == BuildMode::Dev;
@@ -52,7 +64,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     // ==========================================
 
     // 1. Config Audit
-    let config = yml_read_from(project_root, is_dev)?;
+    let mut config = yml_read_from(project_root, is_dev)?;
 
     // 2. Git Capability Audit
     if config.git.commit {
@@ -159,7 +171,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     let mut validation_files = resolved_files.clone();
     validation_files.extend(resolved_hooks.clone());
 
-    let (resolved_token, resolved_python_cmd) = run_pre_flight_checks(
+    let (_resolved_token, resolved_python_cmd) = run_pre_flight_checks(
         project_root,
         &config,
         is_prod_run,
@@ -234,6 +246,41 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
 
     // 6. Git auto-ignore (already handled in yml_read_from via update_ignores)
 
+    // 6.5 Sidecar Output Redirection
+    let mut original_docs_path: Option<PathBuf> = None;
+    let mut original_docs_path_str = "docs".to_string(); // default if missing or can't compute
+    let mut actual_docs_key = "docs".to_string();
+
+    if quarto_exists || bookdown_exists {
+        if let Some((k, docs_config)) = config.directories.iter().find(|(k, _)| k.to_lowercase() == "docs") {
+            actual_docs_key = k.clone();
+            let path = docs_config.path.clone();
+            original_docs_path_str = path.strip_prefix(project_root).unwrap_or(&path).to_string_lossy().to_string();
+            original_docs_path = Some(path);
+        }
+
+        let isolated_docs_path = project_root.join("_tmp").join("projr").join(&current_version).join("docs");
+        let isolated_docs_path_str = isolated_docs_path.strip_prefix(project_root).unwrap_or(&isolated_docs_path).to_string_lossy().to_string();
+
+        if quarto_exists {
+            rewrite_engine_output_dir(project_root, "quarto", &isolated_docs_path_str)?;
+        }
+        if bookdown_exists {
+            rewrite_engine_output_dir(project_root, "bookdown", &isolated_docs_path_str)?;
+        }
+
+        if original_docs_path.is_some() {
+            if let Some(docs_mut) = config.directories.get_mut(&actual_docs_key) {
+                docs_mut.path = isolated_docs_path;
+            }
+        } else {
+            config.directories.insert("docs".to_string(), crate::yml::ResolvedDir {
+                path: isolated_docs_path,
+                ignore: crate::yml::IgnoreConfig::Single("git".to_string()),
+            });
+        }
+    }
+
     // Execute Pre-Build Hooks
     if let Some(pre_hooks) = &hooks_config.pre {
         let pre_resolved = resolve_explicit_scripts(project_root, pre_hooks)?;
@@ -270,6 +317,23 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
             // STEP D: Post-Build Operations
             // ==========================================
 
+            // Restore Sidecar Configs
+            if quarto_exists {
+                let _ = rewrite_engine_output_dir(project_root, "quarto", &original_docs_path_str);
+            }
+            if bookdown_exists {
+                let _ = rewrite_engine_output_dir(project_root, "bookdown", &original_docs_path_str);
+            }
+            if quarto_exists || bookdown_exists {
+                if let Some(orig_path) = original_docs_path.as_ref() {
+                    if let Some(docs_mut) = config.directories.get_mut(&actual_docs_key) {
+                        docs_mut.path = orig_path.clone();
+                    }
+                } else {
+                    config.directories.remove(&actual_docs_key);
+                }
+            }
+
             let is_single_doc_engine = !quarto_exists && !bookdown_exists;
             let clear_output_env = std::env::var("PROJR_CLEAR_OUTPUT").ok();
             let clear_output_val = clear_output_env.as_deref().or(config.clear_output.as_deref());
@@ -282,7 +346,9 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
                     _ => format!("Build v{}", ver_str),
                 };
 
-                git_commit_all(&final_message, Some(project_root))?;
+                // Use the new Git Provider to commit
+                let provider = create_git_provider(config.config.git.engine, project_root.to_path_buf())?;
+                provider.commit_all(&final_message)?;
             }
 
             // Execute Post-Build Hooks (after post-build commit, before push)
@@ -299,14 +365,54 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
                 }
             }
 
+            // Execute Remote Export Pipelines
+            if !config.dest.is_empty() {
+                if let Some(remotes) = &config.remotes.local {
+                    for dest_target in &config.dest {
+                        if let Some(remote) = remotes.get(dest_target) {
+                            for tag in &remote.content {
+                                if let Ok(dir_path) = config.get_path(project_root, tag) {
+                                    if dir_path.exists() {
+                                        crate::cas::ingest_directory(
+                                            project_root,
+                                            &remote.path,
+                                            tag,
+                                            &dir_path,
+                                            &initial_version.to_string(false)
+                                        ).map_err(|e| format!("Failed remote CAS export for {}: {}", tag, e))?;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if config.git.commit {
                 if config.git.push {
-                    git_push(Some(project_root), resolved_token.as_deref())?;
+                    post_build_sync(&config.config, project_root.to_path_buf())?;
                 }
             }
             Ok(())
         },
         Ok(Err(e)) => {
+            // Restore Sidecar Configs on failure
+            if quarto_exists {
+                let _ = rewrite_engine_output_dir(project_root, "quarto", &original_docs_path_str);
+            }
+            if bookdown_exists {
+                let _ = rewrite_engine_output_dir(project_root, "bookdown", &original_docs_path_str);
+            }
+            if quarto_exists || bookdown_exists {
+                if let Some(orig_path) = original_docs_path.as_ref() {
+                    if let Some(docs_mut) = config.directories.get_mut(&actual_docs_key) {
+                        docs_mut.path = orig_path.clone();
+                    }
+                } else {
+                    config.directories.remove(&actual_docs_key);
+                }
+            }
+
             if is_prod_run {
                 // Revert to Development State of Previous Baseline
                 let mut reverted = version_before_build.clone();
@@ -318,6 +424,23 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
             Err(e)
         }
         Err(_) => {
+            // Restore Sidecar Configs on failure
+            if quarto_exists {
+                let _ = rewrite_engine_output_dir(project_root, "quarto", &original_docs_path_str);
+            }
+            if bookdown_exists {
+                let _ = rewrite_engine_output_dir(project_root, "bookdown", &original_docs_path_str);
+            }
+            if quarto_exists || bookdown_exists {
+                if let Some(orig_path) = original_docs_path.as_ref() {
+                    if let Some(docs_mut) = config.directories.get_mut(&actual_docs_key) {
+                        docs_mut.path = orig_path.clone();
+                    }
+                } else {
+                    config.directories.remove(&actual_docs_key);
+                }
+            }
+
             if is_prod_run {
                 // Revert to Development State of Previous Baseline
                 let mut reverted = version_before_build.clone();
@@ -546,6 +669,61 @@ fn rewrite_quarto_yml(project_root: &Path, qmd_files: &[PathBuf]) -> Result<(), 
 
     let out_content = serde_yaml::to_string(&yaml).map_err(|e| e.to_string())?;
     fs::write(&quarto_path, out_content).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Dynamically rewrites the output directory for external engines (`_quarto.yml` or `_bookdown.yml`).
+pub(crate) fn rewrite_engine_output_dir(project_root: &Path, engine: &str, out_dir: &str) -> Result<(), String> {
+    if engine == "quarto" {
+        let quarto_path = project_root.join("_quarto.yml");
+        if !quarto_path.exists() {
+            return Ok(());
+        }
+        let content = fs::read_to_string(&quarto_path).map_err(|e| e.to_string())?;
+
+        let mut yaml: serde_yaml::Value = serde_yaml::from_str(&content).unwrap_or(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+
+        if !yaml.is_mapping() {
+            yaml = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
+        }
+
+        if let serde_yaml::Value::Mapping(ref mut map) = yaml {
+            let proj_key = serde_yaml::Value::String("project".to_string());
+            if !map.contains_key(&proj_key) {
+                map.insert(proj_key.clone(), serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+            }
+
+            if let Some(serde_yaml::Value::Mapping(proj_map)) = map.get_mut(&proj_key) {
+                let out_dir_key = serde_yaml::Value::String("output-dir".to_string());
+                proj_map.insert(out_dir_key, serde_yaml::Value::String(out_dir.to_string()));
+            }
+        }
+
+        let out_content = serde_yaml::to_string(&yaml).map_err(|e| e.to_string())?;
+        fs::write(&quarto_path, out_content).map_err(|e| e.to_string())?;
+
+    } else if engine == "bookdown" {
+        let bookdown_path = project_root.join("_bookdown.yml");
+        if !bookdown_path.exists() {
+            return Ok(());
+        }
+        let content = fs::read_to_string(&bookdown_path).map_err(|e| e.to_string())?;
+
+        let mut yaml: serde_yaml::Value = serde_yaml::from_str(&content).unwrap_or(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+
+        if !yaml.is_mapping() {
+            yaml = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
+        }
+
+        if let serde_yaml::Value::Mapping(ref mut map) = yaml {
+            let out_dir_key = serde_yaml::Value::String("output_dir".to_string());
+            map.insert(out_dir_key, serde_yaml::Value::String(out_dir.to_string()));
+        }
+
+        let out_content = serde_yaml::to_string(&yaml).map_err(|e| e.to_string())?;
+        fs::write(&bookdown_path, out_content).map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 

@@ -5,6 +5,7 @@ pub mod build_pre;
 pub mod build;
 pub mod git;
 pub mod clear;
+pub mod cas;
 
 pub use version::*;
 pub use yml::*;
@@ -13,3 +14,4 @@ pub use build_pre::*;
 pub use build::*;
 pub use git::*;
 pub use clear::*;
+pub use cas::*;
