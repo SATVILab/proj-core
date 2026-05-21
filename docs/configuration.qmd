@@ -1,0 +1,29 @@
+# Configuration `_proj.yml`
+
+The `_proj.yml` file dictates the structural map of your project. It configures the foundational paths and mapping logic used by the CLI.
+
+## Schema Rules and Foundational Prefixes
+
+Custom directory labels are strictly validated against a set of foundational prefixes:
+- `cache`
+- `raw`
+- `output`
+- `docs`
+
+These prefixes are **case-insensitive**. Any label defined in the configuration must begin with one of these approved identifiers.
+
+## Default Fallback Injections
+
+If you omit the `path` key for a valid label, the system applies default paths dynamically based on the label prefix:
+- **`cache`** defaults to `_tmp`
+- **`raw`** defaults to `_raw`
+- **`output`** defaults to `_output`
+- **`docs`** defaults to `docs`
+
+Furthermore, if any of the base prefixes are completely absent from the `_proj.yml` configuration block, they are automatically injected as default base targets.
+
+## Strict Validation Error Behaviors
+
+The system performs strict validation on `_proj.yml`:
+- If a defined directory label uses an unsupported prefix layout, a validation error string will be returned and execution will fail.
+- All references must resolve correctly; otherwise, the CLI will output an error detailing the structurally invalid labels or malformed content.
