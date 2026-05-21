@@ -108,49 +108,62 @@ impl ProjVersion {
 /// ```rust
 /// use std::fs;
 /// use tempfile::TempDir;
-/// use proj::version::{ProjVersion, version_get};
+/// use proj::version::{ProjVersion, version_get_from};
 ///
 /// let temp = TempDir::new().unwrap();
 /// let version_path = temp.path().join("VERSION");
 /// fs::write(&version_path, "Version: v1.0.0").unwrap();
 ///
-/// // Example of setting up the environment variable to test within temp dir context
-/// // In real scenario, `version_get()` searches upwards.
-/// // We are not changing current_dir in doctest as it causes concurrency issues
-/// // let version = version_get();
+/// let version = version_get_from(temp.path()).unwrap();
+/// assert_eq!(version.major, 1);
+/// assert_eq!(version.minor, 0);
+/// assert_eq!(version.patch, 0);
 /// ```
-pub fn version_get() -> Option<ProjVersion> {
-    let root = root()?;
+pub fn version_get_from(root: &std::path::Path) -> Option<ProjVersion> {
     let version_file_path = root.join("VERSION");
     let content = fs::read_to_string(version_file_path).ok()?;
     ProjVersion::parse(&content)
 }
 
-/// Updates the current project version globally.
+/// Thin production wrapper: Retrieves the current project version from the `VERSION` file using implicit system environment to find root.
+///
+/// # Errors
+///
+/// Returns `None` if the root cannot be detected or if the `VERSION` file is invalid.
+///
+/// ```rust,ignore
+/// use proj::version::version_get;
+/// let version = version_get();
+/// ```
+pub fn version_get() -> Option<ProjVersion> {
+    let root = root()?;
+    version_get_from(&root)
+}
+
+/// Updates the current project version globally using a specified root.
 ///
 /// Writes the new version into the `VERSION` file situated at the resolved project root.
 /// The input format can be structured JSON or a standard literal version string.
 ///
 /// # Errors
 ///
-/// Returns a `String` containing the error context if the root is not found,
-/// the input format is invalid, or the `VERSION` file cannot be written to.
+/// Returns a `String` containing the error context if the input format is invalid,
+/// or the `VERSION` file cannot be written to.
 ///
 /// ```rust
 /// use std::fs;
 /// use tempfile::TempDir;
-/// use proj::version::{ProjVersion, version_set};
+/// use proj::version::{ProjVersion, version_set_at};
 ///
 /// let temp = TempDir::new().unwrap();
 /// let version_path = temp.path().join("VERSION");
-/// fs::write(&version_path, "Version: v1.0.0").unwrap();
+/// fs::write(&version_path, "v1.0.0").unwrap();
 ///
-/// // In a real scenario, this runs relative to current working directory root detection.
-/// // We are not changing current_dir in doctest as it causes concurrency issues
-/// // version_set("v1.2.0").unwrap();
+/// version_set_at(temp.path(), "v1.2.0").unwrap();
+/// let new_version = fs::read_to_string(&version_path).unwrap();
+/// assert_eq!(new_version, "Version: v1.2.0");
 /// ```
-pub fn version_set(version_str: &str) -> Result<(), String> {
-    let root = root().ok_or("Could not find project root containing VERSION file")?;
+pub fn version_set_at(root: &std::path::Path, version_str: &str) -> Result<(), String> {
     let version = ProjVersion::parse(version_str)
         .ok_or(format!("Could not parse version: {}", version_str))?;
 
@@ -158,6 +171,21 @@ pub fn version_set(version_str: &str) -> Result<(), String> {
     let content = format!("Version: {}", version.to_string(true));
 
     fs::write(version_file_path, content).map_err(|e| e.to_string())
+}
+
+/// Thin production wrapper: Updates the current project version globally using implicit system environment to find root.
+///
+/// # Errors
+///
+/// Returns an error if the project root cannot be resolved, or if the write fails.
+///
+/// ```rust,ignore
+/// use proj::version::version_set;
+/// version_set("1.0.0").unwrap();
+/// ```
+pub fn version_set(version_str: &str) -> Result<(), String> {
+    let root = root().ok_or("Could not find project root containing VERSION file")?;
+    version_set_at(&root, version_str)
 }
 
 #[cfg(test)]

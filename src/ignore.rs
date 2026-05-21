@@ -18,7 +18,7 @@ use crate::yml::{ValidatedConfig, IgnoreConfig};
 /// use std::collections::HashMap;
 /// use tempfile::TempDir;
 /// use proj::yml::{ValidatedConfig, ResolvedDir, IgnoreConfig};
-/// use proj::ignore::update_ignores;
+/// use proj::ignore::update_ignores_for;
 ///
 /// let temp = TempDir::new().unwrap();
 /// let root = temp.path().to_path_buf();
@@ -30,11 +30,11 @@ use crate::yml::{ValidatedConfig, IgnoreConfig};
 /// });
 ///
 /// let validated = ValidatedConfig { directories: dirs };
-/// update_ignores(&root, &validated).unwrap();
+/// update_ignores_for(&root, &validated).unwrap();
 ///
 /// assert!(root.join(".gitignore").exists());
 /// ```
-pub fn update_ignores(project_root: &std::path::Path, validated: &ValidatedConfig) -> Result<(), String> {
+pub fn update_ignores_for(project_root: &std::path::Path, validated: &ValidatedConfig) -> Result<(), String> {
     let mut git_ignores = Vec::new();
     let mut rbuild_ignores = Vec::new();
 
@@ -174,18 +174,16 @@ fn update_ignore_file(path: &std::path::Path, ignores: &[String]) -> Result<(), 
 /// ```rust
 /// use std::fs;
 /// use tempfile::TempDir;
-/// use proj::ignore::root;
+/// use proj::ignore::root_from;
 ///
 /// let temp = TempDir::new().unwrap();
-/// fs::write(temp.path().join("VERSION"), "Version: v1.0.0").unwrap();
+/// fs::write(temp.path().join("VERSION"), "v1.0.0").unwrap();
 ///
-/// // Root traversal normally searches upwards based on process current directory.
-/// // We are not changing current_dir in doctest as it causes concurrency issues
-/// // let result = root();
+/// let result = root_from(temp.path()).unwrap();
+/// assert!(result.exists());
 /// ```
-pub fn root() -> Option<PathBuf> {
-    let current_dir = env::current_dir().ok()?;
-    let mut current_path = current_dir.as_path();
+pub fn root_from(start_path: &std::path::Path) -> Option<PathBuf> {
+    let mut current_path = start_path;
 
     let first_version_dir;
 
@@ -222,4 +220,35 @@ pub fn root() -> Option<PathBuf> {
 
     // Fallback to the first directory
     Some(first_dir)
+}
+
+/// Thin production wrapper: discovers the conceptual project root directory via heuristic path traversal.
+///
+/// This uses the current directory as the starting search context.
+///
+/// # Errors
+///
+/// Returns `None` if the root cannot be located or if the environment's current working directory is invalid.
+///
+/// ```rust,ignore
+/// use proj::ignore::root;
+/// let result = root();
+/// ```
+pub fn root() -> Option<PathBuf> {
+    let current_dir = env::current_dir().ok()?;
+    root_from(&current_dir)
+}
+
+/// Thin production wrapper: synchronizes ignore rules dynamically across `.gitignore` and `.Rbuildignore`.
+///
+/// # Errors
+///
+/// Returns an error if the files cannot be updated or if required permissions are lacking.
+///
+/// ```rust,ignore
+/// use proj::ignore::update_ignores;
+/// update_ignores(project_root, validated_config).unwrap();
+/// ```
+pub fn update_ignores(project_root: &std::path::Path, validated: &ValidatedConfig) -> Result<(), String> {
+    update_ignores_for(project_root, validated)
 }

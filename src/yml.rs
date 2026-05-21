@@ -272,19 +272,17 @@ fn make_absolute(root: &std::path::Path, path: &std::path::Path) -> PathBuf {
 /// ```rust
 /// use std::fs;
 /// use tempfile::TempDir;
-/// use std::env;
-/// use proj::yml::yml_read;
+/// use proj::yml::yml_read_from;
 ///
 /// let temp = TempDir::new().unwrap();
 /// let root_path = temp.path();
-/// fs::write(root_path.join("VERSION"), "Version: v1.0.0").unwrap();
+/// fs::write(root_path.join("VERSION"), "v1.0.0").unwrap();
 /// fs::write(root_path.join("_proj.yml"), "directories:\n  raw:\n    ignore: all\n").unwrap();
 ///
-/// // We are not changing current_dir in doctest as it causes concurrency issues
-/// // let config = yml_read().unwrap();
+/// let config = yml_read_from(root_path).unwrap();
+/// assert!(config.directories.contains_key("raw"));
 /// ```
-pub fn yml_read() -> Result<ValidatedConfig, String> {
-    let project_root = root().ok_or("Could not find project root")?;
+pub fn yml_read_from(project_root: &std::path::Path) -> Result<ValidatedConfig, String> {
     let yml_path = project_root.join("_proj.yml");
 
     let config: ProjConfig = if yml_path.exists() {
@@ -297,9 +295,25 @@ pub fn yml_read() -> Result<ValidatedConfig, String> {
     let validated = config.validate_and_resolve()?;
 
     // Execute the Ignore Demarcation Engine
-    update_ignores(&project_root, &validated)?;
+    update_ignores(project_root, &validated)?;
 
     Ok(validated)
+}
+
+/// Thin production wrapper: Reads, validates, and initializes the local `_proj.yml` configuration mapping using implicit system root.
+///
+/// # Errors
+///
+/// Returns an error if the underlying filesystem context lacks a valid structural root
+/// or if YAML formatting constraints are severely violated.
+///
+/// ```rust,ignore
+/// use proj::yml::yml_read;
+/// let config = yml_read();
+/// ```
+pub fn yml_read() -> Result<ValidatedConfig, String> {
+    let project_root = root().ok_or("Could not find project root")?;
+    yml_read_from(&project_root)
 }
 
 /// Mock integration hook for legacy compatibility workflows.

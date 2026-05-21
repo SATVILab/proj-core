@@ -9,9 +9,14 @@ use clap::{Parser, Subcommand};
 ///
 /// Commands might panic if standard streams (`stdout`/`stderr`) fail or if
 /// configuration parsing encounters entirely corrupted filesystem states.
+/// ```rust
+/// use clap::Parser;
+/// // let args = vec!["proj", "version", "get"];
+/// // let cli = Cli::parse_from(args);
+/// ```
 #[derive(Parser)]
 #[command(name = "proj", version)]
-struct Cli {
+pub struct Cli {
     #[command(subcommand)]
     command: Commands,
 }
@@ -25,8 +30,11 @@ struct Cli {
 ///
 /// Dispatching subcommands might fail if underlying methods return an `Err`
 /// (e.g. unreadable configuration file).
+/// ```rust
+/// // use proj::Commands;
+/// ```
 #[derive(Subcommand)]
-enum Commands {
+pub enum Commands {
     /// YML related operations
     Yml {
         #[command(subcommand)]
@@ -53,8 +61,11 @@ enum Commands {
 ///
 /// May fail if the YAML file contains structurally invalid labels or
 /// malformed content.
+/// ```rust
+/// // use proj::YmlCommands;
+/// ```
 #[derive(Subcommand)]
-enum YmlCommands {
+pub enum YmlCommands {
     /// Read the _proj.yml content and trigger validation.
     Read,
 }
@@ -67,8 +78,11 @@ enum YmlCommands {
 ///
 /// Might return an error if the project root cannot be found or the specified
 /// label does not follow the required prefixed naming convention.
+/// ```rust
+/// // use proj::PathCommands;
+/// ```
 #[derive(Subcommand)]
-enum PathCommands {
+pub enum PathCommands {
     /// Get the resolved path for a given label
     Get {
         /// The label of the directory to get
@@ -85,8 +99,11 @@ enum PathCommands {
 ///
 /// Can fail if the file is missing, permissions are denied, or an invalid
 /// version format is supplied during a `set` operation.
+/// ```rust
+/// // use proj::VersionCommands;
+/// ```
 #[derive(Subcommand)]
-enum VersionCommands {
+pub enum VersionCommands {
     /// Get the project version
     Get {
         /// Omit the 'v' prefix
