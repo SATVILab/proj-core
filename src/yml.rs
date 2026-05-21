@@ -34,6 +34,25 @@ pub struct BuildConfig {
     pub profile: Option<String>,
     #[serde(default)]
     pub git: GitConfigOpt,
+    #[serde(default)]
+    pub restrictions: RestrictionsConfig,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct RestrictionsConfig {
+    pub only_branches: Option<Vec<String>>,
+    pub not_branches: Option<Vec<String>>,
+    pub not_behind: Option<bool>,
+}
+
+impl Default for RestrictionsConfig {
+    fn default() -> Self {
+        RestrictionsConfig {
+            only_branches: None,
+            not_branches: None,
+            not_behind: None, // Omitted means implicitly true
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -118,12 +137,13 @@ fn default_ignore() -> IgnoreConfig {
 ///
 /// ```rust
 /// use std::collections::HashMap;
-/// use proj::yml::{ValidatedConfig, ResolvedGitConfig};
-/// let config = ValidatedConfig { directories: HashMap::new(), git: ResolvedGitConfig { commit: false, push: false } };
+/// use proj::yml::{ValidatedConfig, ResolvedGitConfig, RestrictionsConfig};
+/// let config = ValidatedConfig { directories: HashMap::new(), git: ResolvedGitConfig { commit: false, push: false }, restrictions: RestrictionsConfig::default() };
 /// ```
 pub struct ValidatedConfig {
     pub directories: HashMap<String, ResolvedDir>,
     pub git: ResolvedGitConfig,
+    pub restrictions: RestrictionsConfig,
 }
 
 /// Represents a validated directory with an absolute or properly referenced system path.
@@ -248,6 +268,7 @@ impl ProjConfig {
         Ok(ValidatedConfig {
             directories: resolved,
             git: resolved_git,
+            restrictions: self.build.restrictions.clone(),
         })
     }
 }
@@ -265,7 +286,7 @@ impl ValidatedConfig {
     /// ```rust
     /// use std::path::PathBuf;
     /// use std::collections::HashMap;
-    /// use proj::yml::{ValidatedConfig, ResolvedDir, IgnoreConfig, ResolvedGitConfig};
+    /// use proj::yml::{ValidatedConfig, ResolvedDir, IgnoreConfig, ResolvedGitConfig, RestrictionsConfig};
     ///
     /// let mut dirs = HashMap::new();
     /// dirs.insert("raw".to_string(), ResolvedDir {
@@ -273,7 +294,7 @@ impl ValidatedConfig {
     ///     ignore: IgnoreConfig::Single("all".to_string())
     /// });
     ///
-    /// let config = ValidatedConfig { directories: dirs, git: ResolvedGitConfig { commit: false, push: false } };
+    /// let config = ValidatedConfig { directories: dirs, git: ResolvedGitConfig { commit: false, push: false }, restrictions: RestrictionsConfig::default() };
     /// let path = config.get_path(&PathBuf::from("/mock/root"), "raw-data").unwrap();
     /// assert_eq!(path, PathBuf::from("/mock/root/_raw/data"));
     /// ```

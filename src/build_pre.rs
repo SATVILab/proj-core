@@ -14,11 +14,74 @@ pub fn find_python_command() -> Option<String> {
     None
 }
 
+use crate::yml::ValidatedConfig;
+
 pub fn run_pre_flight_checks(
+    project_root: &std::path::Path,
+    config: &ValidatedConfig,
+    is_prod_run: bool,
     resolved_files: &[PathBuf],
     quarto_exists: bool,
     bookdown_exists: bool,
 ) -> Result<Option<String>, String> {
+    if is_prod_run {
+        let is_git_repo = project_root.join(".git").exists();
+
+        let mut current_branch = None;
+        if is_git_repo {
+            let mut cmd = Command::new("git");
+            cmd.args(["symbolic-ref", "--short", "HEAD"]);
+            cmd.current_dir(project_root);
+            if let Ok(output) = cmd.output() {
+                if output.status.success() {
+                    current_branch = Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
+                }
+            }
+        }
+
+        // Branch constraints
+        if let Some(only_branches) = &config.restrictions.only_branches {
+            if !is_git_repo {
+                return Err("Error: build.restrictions.only_branches is specified, but the project is not inside a Git repository.".to_string());
+            }
+            if let Some(branch) = &current_branch {
+                if !only_branches.contains(branch) {
+                    return Err(format!("Error: Output builds are restricted to branches {:?} as per build.restrictions.only_branches. Current branch is '{}'.", only_branches, branch));
+                }
+            } else {
+                return Err("Error: build.restrictions.only_branches is specified, but could not determine current branch.".to_string());
+            }
+        }
+
+        if let Some(not_branches) = &config.restrictions.not_branches {
+            if let Some(branch) = &current_branch {
+                if not_branches.contains(branch) {
+                    return Err(format!("Error: Output builds are restricted on branch '{}' as per build.restrictions.not_branches.", branch));
+                }
+            }
+        }
+
+        // Upstream synchronicity
+        let not_behind = config.restrictions.not_behind;
+        if not_behind != Some(false) {
+            if not_behind == Some(true) && (!is_git_repo || !has_tracking_remote(project_root)) {
+                return Err("Error: build.restrictions.not_behind is explicitly set to true, but no Git remote is configured.".to_string());
+            }
+
+            if is_git_repo {
+                if !has_tracking_remote(project_root) {
+                    if not_behind.is_none() {
+                        return Err("Error: Git repository detected but no upstream tracking remote is configured. Configure a remote or set build.restrictions.not_behind to false.".to_string());
+                    }
+                } else {
+                    if is_behind_remote(project_root)? {
+                        return Err("Error: The local branch is behind its tracking remote. Please pull or merge changes before building.".to_string());
+                    }
+                }
+            }
+        }
+    }
+
     let mut r_needed = false;
     let mut quarto_needed = quarto_exists;
     let mut python_needed = false;
@@ -149,4 +212,42 @@ pub fn run_pre_flight_checks(
     }
 
     Ok(resolved_python_cmd)
+}
+
+fn has_tracking_remote(project_root: &std::path::Path) -> bool {
+    let mut cmd = Command::new("git");
+    cmd.args(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+    cmd.current_dir(project_root);
+    if let Ok(output) = cmd.output() {
+        output.status.success() && !String::from_utf8_lossy(&output.stdout).trim().is_empty()
+    } else {
+        false
+    }
+}
+
+fn is_behind_remote(project_root: &std::path::Path) -> Result<bool, String> {
+    // Perform fetch
+    let mut fetch_cmd = Command::new("git");
+    fetch_cmd.args(["fetch"]);
+    fetch_cmd.current_dir(project_root);
+    let fetch_out = fetch_cmd.output().map_err(|e| format!("Failed to fetch from remote: {}", e))?;
+    if !fetch_out.status.success() {
+        return Err(format!("Failed to fetch from remote: {}", String::from_utf8_lossy(&fetch_out.stderr)));
+    }
+
+    // Check rev-list --count HEAD..@{u}
+    let mut cmd = Command::new("git");
+    cmd.args(["rev-list", "--count", "HEAD..@{u}"]);
+    cmd.current_dir(project_root);
+    let output = cmd.output().map_err(|e| format!("Failed to check if behind remote: {}", e))?;
+
+    if output.status.success() {
+        let count_str = String::from_utf8_lossy(&output.stdout);
+        if let Ok(count) = count_str.trim().parse::<u32>() {
+            return Ok(count > 0);
+        }
+    }
+
+    // If the above fails (e.g., no upstream configured, though we check it prior), assume not behind or return error
+    Err("Failed to determine if the local branch is behind the remote.".to_string())
 }
