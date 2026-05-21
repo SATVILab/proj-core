@@ -2,7 +2,9 @@ use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::fs;
+use serde_json::Value;
 use crate::ignore::{root, update_ignores};
+use crate::profile::get_active_profiles;
 
 /// Represents the complete structure of a `_proj.yml` configuration file.
 ///
@@ -58,6 +60,8 @@ pub struct ProjConfig {
     pub build: BuildConfig,
     #[serde(default)]
     pub dev: DevConfig,
+    #[serde(default)]
+    pub metadata: Option<Value>,
 }
 
 /// Represents the top-level configuration key `config` in `_proj.yml`.
@@ -489,15 +493,103 @@ fn make_absolute(root: &std::path::Path, path: &std::path::Path) -> PathBuf {
 /// let config = yml_read_from(root_path, false).unwrap();
 /// assert!(config.directories.contains_key("raw"));
 /// ```
-pub fn yml_read_from(project_root: &std::path::Path, is_dev: bool) -> Result<ValidatedConfig, String> {
-    let yml_path = project_root.join("_proj.yml");
+/// Deep merges `source` into `target`.
+///
+/// If a value in `source` is Null, it falls back to the value in `target` (i.e. does nothing if target has it, or just keeps target's value).
+/// Wait, if source has Null, it means the value was unset in the profile but maybe set in base.
+/// Let's refine: The precedence is Local > Profile > Base.
+/// So we merge `profile` over `base`, then `local` over `profile_merged`.
+/// When merging `B` over `A`:
+/// If `B` is Null, the result is `A`.
+/// If `B` is Object and `A` is Object, recursively merge `B`'s fields into `A`.
+/// Otherwise, `B` overwrites `A`.
+pub fn deep_merge(target: Value, source: Value) -> Value {
+    match (target.clone(), source.clone()) {
+        (_, Value::Null) => target, // Null means fall back to target
+        (Value::Object(mut target_map), Value::Object(source_map)) => {
+            for (k, v) in source_map {
+                let target_val = target_map.remove(&k).unwrap_or(Value::Null);
+                target_map.insert(k, deep_merge(target_val, v));
+            }
+            Value::Object(target_map)
+        }
+        (Value::Array(_), Value::Array(_)) => {
+            // Wait, for arrays, does source overwrite entirely, or merge?
+            // The prompt says "unless both matching nodes are nested maps, in which case their fields merge recursively."
+            // So arrays overwrite.
+            source
+        }
+        (_, _) => source, // source overwrites target
+    }
+}
 
-    let config: ProjConfig = if yml_path.exists() {
-        let content = fs::read_to_string(&yml_path).map_err(|e| e.to_string())?;
-        serde_yaml::from_str(&content).map_err(|e| e.to_string())?
+/// Strictly filters out any top-level namespace not in `directories`, `build`, `dev`, `metadata`, `remotes`, `config`.
+pub fn yml_get_filter_top_level(value: Value) -> Value {
+    if let Value::Object(map) = value {
+        let mut new_map = serde_json::Map::new();
+        let allowed_keys = ["directories", "build", "dev", "metadata", "remotes", "config"];
+        for (k, v) in map {
+            if allowed_keys.contains(&k.as_str()) {
+                new_map.insert(k, v);
+            }
+        }
+        Value::Object(new_map)
     } else {
-        ProjConfig::default()
+        value
+    }
+}
+
+/// Pipeline coordinator to merge `_proj.yml`, active profiles, and `_projr-local.yml`.
+pub fn get_combined_yml(explicit_profile: Option<&str>, base_dir: &std::path::Path) -> Result<Value, String> {
+    // 1. Read base `_proj.yml`
+    let base_path = base_dir.join("_proj.yml");
+    let mut base_val = if base_path.exists() {
+        let content = fs::read_to_string(&base_path).map_err(|e| e.to_string())?;
+        let yaml_val: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+        serde_json::to_value(yaml_val).map_err(|e| e.to_string())?
+    } else {
+        Value::Object(serde_json::Map::new())
     };
+
+    // 2. Read profiles from PROJR_PROFILE and explicit profile
+    let mut profiles = get_active_profiles();
+    if let Some(ep) = explicit_profile {
+        let additional: Vec<String> = ep.split(|c| c == ',' || c == ';')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty() && s != "default" && s != "local")
+            .collect();
+        profiles.extend(additional);
+    }
+
+    for p in profiles {
+        let profile_path = base_dir.join(format!("_projr-{}.yml", p));
+        if profile_path.exists() {
+            let content = fs::read_to_string(&profile_path).map_err(|e| e.to_string())?;
+            let yaml_val: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+            let profile_val: Value = serde_json::to_value(yaml_val).map_err(|e| e.to_string())?;
+            base_val = deep_merge(base_val, profile_val);
+        }
+    }
+
+    // 3. Read local `_projr-local.yml`
+    let local_path = base_dir.join("_projr-local.yml");
+    if local_path.exists() {
+        let content = fs::read_to_string(&local_path).map_err(|e| e.to_string())?;
+        let yaml_val: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+        let local_val: Value = serde_json::to_value(yaml_val).map_err(|e| e.to_string())?;
+        base_val = deep_merge(base_val, local_val);
+    }
+
+    // 4. Filter top-level
+    let filtered_val = yml_get_filter_top_level(base_val);
+
+    Ok(filtered_val)
+}
+
+pub fn yml_read_from(project_root: &std::path::Path, is_dev: bool) -> Result<ValidatedConfig, String> {
+    let combined_val = get_combined_yml(None, project_root)?;
+
+    let config: ProjConfig = serde_json::from_value(combined_val).unwrap_or_default();
 
     let validated = config.validate_and_resolve(project_root, is_dev)?;
 
