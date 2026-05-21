@@ -37,3 +37,6 @@ The `_proj.yml` file can also contain a `build` block to configure the behavior 
   - Prefix a pattern with `!` to exclude matching files from execution.
   - When provided, execution strictly follows the resolved relative order of scripts, bypassing automated project discovery fallbacks unless mutually exclusive configuration states are detected.
 - **`profile`**: An optional environment profile identifier. When set, the system injects the `PROJR_PROFILE` environment variable into the isolated subprocess for all executed scripts and project rendering commands. This can be overridden at runtime via the `--profile` CLI flag.
+- **`git`**: An optional Git integration configuration. This can be a boolean toggle or an object mapping out detailed toggles:
+  - **`commit`**: Whether to automatically perform pre and post-build commits (defaults to false).
+  - **`push`**: Whether to automatically push a successful build commit to the remote repository (defaults to false).

@@ -1,0 +1,73 @@
+# Proj Build Execution Flow
+
+This document serves as a strict technical reference detailing exactly what happens when the `proj build` (or `proj build-dev`) command is executed. The build pipeline is designed to enforce structural integrity, version control, and reproducible execution environments. The process is strictly divided into three sequential stages: Pre-Build, Actual Build, and Post-Build.
+
+## 1. Pre-Build Stage
+
+The pre-build stage focuses on validation, environment auditing, and preparing the workspace state prior to executing any project code.
+
+### 1.1 Config Audit
+The `_proj.yml` configuration is parsed and validated based on the execution mode (development vs. production).
+
+### 1.2 Git Capability Audit
+If the configuration mandates version control integration (`git.commit` is `true`):
+- The system verifies that Git is installed and available on the system `PATH`.
+- A check is performed to ensure the Git profile (author identity) is properly configured for the workspace.
+
+### 1.3 Version Initialization and Bumping
+The project's current version is resolved by checking the `VERSION` file. If absent, the system attempts to extract it from an R `DESCRIPTION` file, or defaults to `v0.0.1`.
+- **Development Builds (`proj build-dev`):** If the development flag is `0`, it is bumped to `1`.
+- **Production Builds (`proj build`):** The version is bumped according to the specified strategy (`--major`, `--minor`, or `--patch`), and the development flag is reset to `0`.
+The newly computed version is then written back to the project configuration.
+
+### 1.4 Git Pre-Snapshot
+If `git.commit` is enabled, all current workspace changes are staged and committed with a "Snapshot pre-build" message. This creates a clean rollback point should the build process fail.
+
+## 2. Actual Build Stage
+
+The actual build stage handles the isolation, resolution, and execution of scripts and documents. This entire stage is executed within a `catch_unwind` block to safely trap panics and allow for graceful recovery.
+
+### 2.1 Workspace Evaluation
+The system inspects the workspace for the presence of `_quarto.yml` and `_bookdown.yml`.
+- **Mutual Exclusion Check:** The presence of both configuration files simultaneously results in a fatal validation error if the `build.scripts` configuration is omitted or includes documentation targets (`.qmd` or `.Rmd`).
+
+### 2.2 Script Resolution Strategies
+The engine determines which scripts to execute based on two possible paths:
+
+#### Path A: Explicit Configuration (`build.scripts`)
+If `build.scripts` is defined in `_proj.yml`:
+- Glob patterns are resolved to absolute paths.
+- Exclusion patterns (prefixed with `!`) filter the matched lists.
+- Empty lists explicitly short-circuit the execution process (The Explicit Empty Exception).
+- Documentation files (`.qmd`, `.Rmd`) are segregated from standalone scripts (`.R`, `.py`).
+- **Dynamic Configuration Updates:** If documentation targets are specified, the respective project files (`_quarto.yml` or `_bookdown.yml`) are dynamically updated to only render the explicitly requested targets.
+
+#### Path B: Fallback Automated Auto-Discovery
+If no explicit scripts are defined:
+- The system determines if it should trigger an automated Quarto or Bookdown site render based on the presence of their configuration files.
+- If neither exists, a shallow directory sweep is performed, executing discovered files strictly in the order of: `.qmd`, `.Rmd`, `.R`, `.py`.
+
+### 2.3 Execution and Reordering Constraint
+Scripts are executed in isolated subprocesses using their respective interpreters (e.g., `Rscript`, `python`, `quarto`). The subprocess `current_dir` is explicitly set to the directory containing the target script.
+
+When Quarto or Bookdown configurations are active alongside explicit scripts, a strict reordering constraint is applied:
+1. **Pre-scripts:** All `.R` or `.py` files listed *before* the first documentation file are executed.
+2. **Doc Clusters:** The documentation project render engine (`quarto render` or `rmarkdown::render_site`) is triggered.
+3. **Post-scripts:** All `.R` or `.py` files listed *after* the first documentation file are executed.
+
+Otherwise, scripts are executed sequentially exactly as resolved.
+
+## 3. Post-Build Stage
+
+The post-build stage acts on the final status of the actual build stage, finalizing version control or safely rolling back the workspace.
+
+### 3.1 On Build Success
+If the entire build pipeline executes without error and Git integration is enabled (`git.commit` is `true`):
+- A final commit is generated capturing all build artifacts and modifications.
+- The commit message is formatted as `Build v<VERSION>` or includes an optional user-provided description (`Build v<VERSION>: <DESCRIPTION>`).
+- If `git.push` is explicitly configured to `true`, the resulting commit is pushed to the remote repository.
+
+### 3.2 On Build Failure or Panic
+If the build pipeline returns an error or panics mid-execution:
+- **Production Rollback:** If the build was a production run (`--major`, `--minor`, or `--patch`), the version modifications performed in the Pre-Build stage are reversed. The system restores the pre-build version configuration and ensures the development flag (`dev`) is set to `1` to maintain safety.
+- The underlying error is propagated to the CLI output, terminating the process with a non-zero exit code.
