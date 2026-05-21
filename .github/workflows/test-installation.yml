@@ -9,11 +9,76 @@ on:
 
 jobs:
 
-  test-local-installation:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
+  # =================================================================
+  # PHASE 1: BUILD ARTIFACTS ONCE
+  # =================================================================
 
+  build-linux-artifacts:
+    name: Build Linux Binary & Debian Package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Enable Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      # Installs cargo-deb via pre-compiled binary instead of building from source
+      - name: Install cargo-deb quickly
+        run: |
+          curl -LSc - https://github.com/mmstick/cargo-deb/releases/latest/download/cargo-deb_amd64.tar.gz | tar -xzf - -C ~/.cargo/bin
+
+      - name: Compile Release Binary and Debian Package
+        run: |
+          cargo build --release
+          mkdir -p dist
+          cargo deb --output dist/
+          # Copy raw binary to dist for the local script testing job
+          cp target/release/proj dist/proj_linux_amd64
+
+      - name: Upload Built Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-dist
+          path: dist/
+
+  build-windows-artifacts:
+    name: Build Windows Binary
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Enable Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Windows Binary
+        shell: pwsh
+        run: |
+          cargo build --release
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item "target\release\proj.exe" -Destination "dist\proj_windows_amd64.exe" -Force
+
+      - name: Upload Built Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist
+          path: dist/
+
+  # =================================================================
+  # PHASE 2: ENVIRONMENT DOCK TESTING (NO RE-COMPILATION)
+  # =================================================================
+
+  test-local-installation:
+    name: Test Bash Installer (Clean Ubuntu)
+    runs-on: ubuntu-latest
+    needs: build-linux-artifacts
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -23,15 +88,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git curl bash
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build fake release binary
-        run: |
-          mkdir -p /tmp/fake-release
-          cargo build --release
-          # Mock the release action string structure for testing the installer
-          cp target/release/proj /tmp/fake-release/proj_linux_amd64
+      # Instantly downloads the binary compiled in Phase 1
+      - name: Download Linux Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-dist
+          path: /tmp/fake-release
 
       - name: Run local installation script
         env:
@@ -51,24 +113,18 @@ jobs:
           echo "Local Unix installation test passed successfully."
 
   test-debian-package:
+    name: Test APT/Debian Package Profile (Clean Ubuntu)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
+    needs: build-linux-artifacts
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-deb tool
-        run: cargo install cargo-deb --locked
-
-      - name: Compile and Build Debian Package
-        run: |
-          mkdir -p dist
-          cargo deb --output dist/
+      - name: Download Linux Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-dist
+          path: dist
 
       - name: Install APT prerequisites
         run: |
@@ -83,6 +139,7 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/apt-miguelrodo.list >/dev/null
           sudo apt-get update
 
+      # Installs the pre-built .deb artifact to ensure package metadata/paths are sound
       - name: Install generated .deb artifact
         run: |
           sudo dpkg -i dist/*.deb || true
@@ -94,25 +151,19 @@ jobs:
           proj --help || true
 
   test-windows-manual:
+    name: Test PowerShell Installer (Clean Windows)
     runs-on: windows-latest
-    permissions:
-      contents: read
-
+    needs: build-windows-artifacts
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build fake release binary for Windows architecture
-        shell: pwsh
-        run: |
-          $fakeRelease = Join-Path $env:TEMP "fake-release"
-          New-Item -ItemType Directory -Path $fakeRelease -Force | Out-Null
-          cargo build --release
-          Copy-Item "target\release\proj.exe" -Destination (Join-Path $fakeRelease "proj_windows_amd64.exe") -Force
-          Write-Host "Fake release binary built for Windows testing environment"
+      # Instantly downloads the windows binary compiled in Phase 1
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-dist
+          path: ${{ env.TEMP }}/fake-release
 
       - name: Run install.ps1 script execution pass
         shell: pwsh
@@ -136,31 +187,14 @@ jobs:
             throw "Failed"
           }
 
-  test-from-source:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Compile and check binary execution boundaries
-        run: |
-          cargo build --release
-          ./target/release/proj --help || true
-          echo "From source raw target execution block validated successfully."
+  # =================================================================
+  # PHASE 3: EVALUATION SUMMARY
+  # =================================================================
 
   test-summary:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    needs: [test-local-installation, test-debian-package, test-windows-manual, test-from-source]
+    needs: [build-linux-artifacts, build-windows-artifacts, test-local-installation, test-debian-package, test-windows-manual]
     if: always()
-
     steps:
       - name: Evaluate execution summary matrix statuses
         run: |
@@ -174,10 +208,6 @@ jobs:
           fi
           if [ "${{ needs.test-windows-manual.result }}" != "success" ]; then
             echo "Windows native install script tracking pass failed."
-            exit 1
-          fi
-          if [ "${{ needs.test-from-source.result }}" != "success" ]; then
-            echo "Source environment compilation matrix failed."
             exit 1
           fi
           echo "✅ Complete compilation & environmental deployment methods tested completely."
