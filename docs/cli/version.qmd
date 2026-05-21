@@ -6,6 +6,8 @@ Get the project version based on the `VERSION` file.
 
 The command searches upwards from the current directory to discover the project root containing the `VERSION` file. It parses the version text (supporting both raw strings like `v1.0.0` or JSON objects) and resolves it to a standard output.
 
+If the `VERSION` file is missing, the tool attempts to fall back and parse the version from an R package `DESCRIPTION` file if one is present in the project root. If neither a `VERSION` file nor a `DESCRIPTION` file exists, it defaults to a newly initialized `v0.0.1`.
+
 ```bash
 proj version get
 ```

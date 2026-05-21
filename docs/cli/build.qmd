@@ -4,6 +4,12 @@ The build pipeline script execution engine for the project.
 
 This command evaluates what files need to be run based on configuration layout parameters (`build.scripts` in `_proj.yml`) or filesystem auto-discovery. It sorts them according to strict engine precedence rules, modifies format-specific configuration templates when necessary, and executes each script inside its own independent, isolated subprocess.
 
+## Arguments & Flags
+
+- `--major`, `--minor`, `--patch`: Specifies the version bump strategy for a production build.
+- `--profile`: An optional profile to configure execution context.
+- `--description`: An optional description string for the build commit. If omitted during a production build that involves git commits, the CLI will interactively prompt for a one-line description when running inside a valid terminal session.
+
 ## Features
 
 - **Pre-flight Dependency Checks:** Before modifying files or triggering git snapshots, the build engine statically resolves targets to identify dependencies. Depending on the matched scripts (such as `.Rmd`, `.qmd`, or `.py`) and configuration files, it asserts the availability of `Rscript` (verifying required R namespaces like `rmarkdown` or `bookdown`), `quarto`, or python executable commands. Any missing R packages can be resolved automatically via the `PROJR_AUTO_INSTALL` environment variable, or through an interactive terminal prompt.
