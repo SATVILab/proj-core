@@ -36,11 +36,15 @@ pub fn check_git_profile() -> Result<(), String> {
 
 /// Runs `git add -A` to stage modified and untracked changes.
 /// Runs `git commit -m "<message>"`. Squelch errors gracefully if there are no modifications staged to be committed.
-pub fn git_commit_all(message: &str) -> Result<(), String> {
+pub fn git_commit_all(message: &str, current_dir: Option<&std::path::Path>) -> Result<(), String> {
     // git add -A
-    let add_output = Command::new("git")
-        .args(["add", "-A"])
-        .output()
+    let mut add_cmd = Command::new("git");
+    add_cmd.args(["add", "-A"]);
+    if let Some(dir) = current_dir {
+        add_cmd.current_dir(dir);
+    }
+
+    let add_output = add_cmd.output()
         .map_err(|e| format!("Failed to execute 'git add -A': {}", e))?;
 
     if !add_output.status.success() {
@@ -48,9 +52,13 @@ pub fn git_commit_all(message: &str) -> Result<(), String> {
     }
 
     // git commit -m message
-    let commit_output = Command::new("git")
-        .args(["commit", "-m", message])
-        .output()
+    let mut commit_cmd = Command::new("git");
+    commit_cmd.args(["commit", "-m", message]);
+    if let Some(dir) = current_dir {
+        commit_cmd.current_dir(dir);
+    }
+
+    let commit_output = commit_cmd.output()
         .map_err(|e| format!("Failed to execute 'git commit': {}", e))?;
 
     // Squelch errors gracefully if there are no modifications staged to be committed
@@ -72,10 +80,14 @@ pub fn git_commit_all(message: &str) -> Result<(), String> {
 }
 
 /// Runs `git push` to upload tracking offsets upstream.
-pub fn git_push() -> Result<(), String> {
-    let output = Command::new("git")
-        .arg("push")
-        .output()
+pub fn git_push(current_dir: Option<&std::path::Path>) -> Result<(), String> {
+    let mut push_cmd = Command::new("git");
+    push_cmd.arg("push");
+    if let Some(dir) = current_dir {
+        push_cmd.current_dir(dir);
+    }
+
+    let output = push_cmd.output()
         .map_err(|e| format!("Failed to execute 'git push': {}", e))?;
 
     if !output.status.success() {

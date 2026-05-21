@@ -120,7 +120,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
 
     // 6. Git Pre-Snapshot
     if config.git.commit {
-        git_commit_all("Snapshot pre-build")?;
+        git_commit_all("Snapshot pre-build", Some(project_root))?;
     }
 
     let quarto_exists = project_root.join("_quarto.yml").exists();
@@ -163,10 +163,10 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
                     _ => format!("Build v{}", ver_str),
                 };
 
-                git_commit_all(&final_message)?;
+                git_commit_all(&final_message, Some(project_root))?;
 
                 if config.git.push {
-                    git_push()?;
+                    git_push(Some(project_root))?;
                 }
             }
             Ok(())

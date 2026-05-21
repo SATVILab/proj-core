@@ -20,8 +20,9 @@ fn test_missing_version_fallback_to_description() {
     // Dummy config
     fs::write(root.join("_proj.yml"), "directories: {}").unwrap();
 
-    // Create dummy git repo so it won't fail config git test
-    fs::create_dir(root.join(".git")).unwrap();
+    // Ensure git init exists to prevent git add -A failing
+    use std::process::Command;
+    Command::new("git").arg("init").current_dir(root).output().unwrap();
 
     // Should create VERSION file containing v1.2.3.4 (after reading it, bumped for PROD patch)
     // Actually ProdPatch bumps patch -> 1.2.4.0
@@ -45,7 +46,8 @@ fn test_missing_version_fallback_to_default() {
 
     // No VERSION, no DESCRIPTION
     fs::write(root.join("_proj.yml"), "directories: {}").unwrap();
-    fs::create_dir(root.join(".git")).unwrap();
+    use std::process::Command;
+    Command::new("git").arg("init").current_dir(root).output().unwrap();
 
     let _ = build_project(root, BuildMode::ProdPatch, None, None);
 
