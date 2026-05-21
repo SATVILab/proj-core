@@ -10,6 +10,9 @@ website:
       - section: "Configuration"
         contents:
           - configuration.qmd
+      - section: "Build Reference"
+        contents:
+          - flow.qmd
       - section: "CLI Reference"
         contents:
           - cli/version.qmd
