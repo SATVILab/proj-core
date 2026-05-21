@@ -67,6 +67,10 @@ pub enum Commands {
         /// Optional profile
         #[arg(long)]
         profile: Option<String>,
+
+        /// Optional description for the build commit
+        #[arg(long)]
+        description: Option<String>,
     },
     /// Dev Build operations
     BuildDev {
@@ -151,7 +155,8 @@ fn main() {
     match &cli.command {
         Commands::Yml { command } => match command {
             YmlCommands::Read => {
-                match proj::yml_read() {
+                // Pass false for is_dev as this is just a read check
+                match proj::yml_read(false) {
                     Ok(_) => println!("Successfully read and validated _proj.yml"),
                     Err(e) => eprintln!("Error reading _proj.yml: {}", e),
                 }
@@ -159,7 +164,7 @@ fn main() {
         },
         Commands::Path { command } => match command {
             PathCommands::Get { label } => {
-                match proj::yml_read() {
+                match proj::yml_read(false) {
                     Ok(config) => {
                         if let Some(root) = proj::root() {
                             match config.get_path(&root, label) {
@@ -174,7 +179,7 @@ fn main() {
                 }
             }
         },
-        Commands::Build { major, minor, patch: _, profile } => {
+        Commands::Build { major, minor, patch: _, profile, description } => {
             if let Some(root) = proj::root() {
                 let mode = if *major {
                     proj::BuildMode::ProdMajor
@@ -184,7 +189,28 @@ fn main() {
                     proj::BuildMode::ProdPatch
                 };
 
-                if let Err(e) = proj::build_project(&root, mode, profile.as_deref()) {
+                let mut desc = description.clone();
+                if desc.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) {
+                    use std::io::{self, BufRead};
+                    let is_terminal = std::io::IsTerminal::is_terminal(&io::stdin());
+                    if is_terminal {
+                        let mut input = String::new();
+                        let stdin = io::stdin();
+                        loop {
+                            println!("Enter a one-line description of the build: ");
+                            input.clear();
+                            if stdin.lock().read_line(&mut input).is_ok() {
+                                let trimmed = input.trim();
+                                if !trimmed.is_empty() {
+                                    desc = Some(trimmed.to_string());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let Err(e) = proj::build_project(&root, mode, profile.as_deref(), desc.as_deref()) {
                     eprintln!("Build failed: {}", e);
                     std::process::exit(1);
                 } else {
@@ -197,7 +223,7 @@ fn main() {
         },
         Commands::BuildDev { profile } => {
             if let Some(root) = proj::root() {
-                if let Err(e) = proj::build_project(&root, proj::BuildMode::Dev, profile.as_deref()) {
+                if let Err(e) = proj::build_project(&root, proj::BuildMode::Dev, profile.as_deref(), None) {
                     eprintln!("Build failed: {}", e);
                     std::process::exit(1);
                 } else {

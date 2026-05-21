@@ -23,7 +23,8 @@ use crate::ignore::{root, update_ignores};
 pub struct ProjConfig {
     #[serde(default)]
     pub directories: HashMap<String, DirConfig>,
-    pub build: Option<BuildConfig>,
+    #[serde(default)]
+    pub build: BuildConfig,
 }
 
 /// Represents the build configuration options within `_proj.yml`.
@@ -31,6 +32,34 @@ pub struct ProjConfig {
 pub struct BuildConfig {
     pub scripts: Option<Vec<String>>,
     pub profile: Option<String>,
+    #[serde(default)]
+    pub git: GitConfigOpt,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(untagged)]
+pub enum GitConfigOpt {
+    Boolean(bool),
+    Detailed(GitConfig),
+}
+
+impl Default for GitConfigOpt {
+    fn default() -> Self {
+        // By default, acts as a detailed block with empty entries to evaluate run-time fallbacks
+        GitConfigOpt::Detailed(GitConfig::default())
+    }
+}
+
+#[derive(Deserialize, Debug, Default, Clone, PartialEq)]
+pub struct GitConfig {
+    pub commit: Option<bool>,
+    pub push: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedGitConfig {
+    pub commit: bool,
+    pub push: bool,
 }
 
 /// Represents the configuration for a single directory entry within `_proj.yml`.
@@ -89,11 +118,12 @@ fn default_ignore() -> IgnoreConfig {
 ///
 /// ```rust
 /// use std::collections::HashMap;
-/// use proj::yml::ValidatedConfig;
-/// let config = ValidatedConfig { directories: HashMap::new() };
+/// use proj::yml::{ValidatedConfig, ResolvedGitConfig};
+/// let config = ValidatedConfig { directories: HashMap::new(), git: ResolvedGitConfig { commit: false, push: false } };
 /// ```
 pub struct ValidatedConfig {
     pub directories: HashMap<String, ResolvedDir>,
+    pub git: ResolvedGitConfig,
 }
 
 /// Represents a validated directory with an absolute or properly referenced system path.
@@ -123,11 +153,12 @@ impl ProjConfig {
     ///
     /// ```rust
     /// use proj::yml::ProjConfig;
+    /// use std::path::PathBuf;
     /// let config = ProjConfig::default();
-    /// let validated = config.validate_and_resolve().unwrap();
+    /// let validated = config.validate_and_resolve(&PathBuf::from("."), false).unwrap();
     /// assert!(validated.directories.contains_key("raw"));
     /// ```
-    pub fn validate_and_resolve(&self) -> Result<ValidatedConfig, String> {
+    pub fn validate_and_resolve(&self, project_root: &std::path::Path, is_dev: bool) -> Result<ValidatedConfig, String> {
         let mut resolved = HashMap::new();
 
         // 1. Process explicit user configurations
@@ -184,7 +215,40 @@ impl ProjConfig {
             }
         }
 
-        Ok(ValidatedConfig { directories: resolved })
+        // 3. Resolve Git configuration
+        let has_git = project_root.join(".git").exists();
+
+        let mut resolved_git = ResolvedGitConfig { commit: false, push: false };
+
+        if is_dev {
+            // Dev builds bypass git
+            resolved_git.commit = false;
+            resolved_git.push = false;
+        } else {
+            match &self.build.git {
+                GitConfigOpt::Boolean(false) => {
+                    resolved_git.commit = false;
+                    resolved_git.push = false;
+                }
+                GitConfigOpt::Boolean(true) => {
+                    resolved_git.commit = true;
+                    resolved_git.push = false;
+                }
+                GitConfigOpt::Detailed(detail) => {
+                    resolved_git.commit = detail.commit.unwrap_or(has_git);
+                    resolved_git.push = detail.push.unwrap_or(false);
+                }
+            }
+        }
+
+        if resolved_git.push && !resolved_git.commit {
+            return Err("Configuration error: 'push' cannot be true if 'commit' is false.".to_string());
+        }
+
+        Ok(ValidatedConfig {
+            directories: resolved,
+            git: resolved_git,
+        })
     }
 }
 
@@ -201,7 +265,7 @@ impl ValidatedConfig {
     /// ```rust
     /// use std::path::PathBuf;
     /// use std::collections::HashMap;
-    /// use proj::yml::{ValidatedConfig, ResolvedDir, IgnoreConfig};
+    /// use proj::yml::{ValidatedConfig, ResolvedDir, IgnoreConfig, ResolvedGitConfig};
     ///
     /// let mut dirs = HashMap::new();
     /// dirs.insert("raw".to_string(), ResolvedDir {
@@ -209,7 +273,7 @@ impl ValidatedConfig {
     ///     ignore: IgnoreConfig::Single("all".to_string())
     /// });
     ///
-    /// let config = ValidatedConfig { directories: dirs };
+    /// let config = ValidatedConfig { directories: dirs, git: ResolvedGitConfig { commit: false, push: false } };
     /// let path = config.get_path(&PathBuf::from("/mock/root"), "raw-data").unwrap();
     /// assert_eq!(path, PathBuf::from("/mock/root/_raw/data"));
     /// ```
@@ -287,10 +351,10 @@ fn make_absolute(root: &std::path::Path, path: &std::path::Path) -> PathBuf {
 /// fs::write(root_path.join("VERSION"), "v1.0.0").unwrap();
 /// fs::write(root_path.join("_proj.yml"), "directories:\n  raw:\n    ignore: all\n").unwrap();
 ///
-/// let config = yml_read_from(root_path).unwrap();
+/// let config = yml_read_from(root_path, false).unwrap();
 /// assert!(config.directories.contains_key("raw"));
 /// ```
-pub fn yml_read_from(project_root: &std::path::Path) -> Result<ValidatedConfig, String> {
+pub fn yml_read_from(project_root: &std::path::Path, is_dev: bool) -> Result<ValidatedConfig, String> {
     let yml_path = project_root.join("_proj.yml");
 
     let config: ProjConfig = if yml_path.exists() {
@@ -300,7 +364,7 @@ pub fn yml_read_from(project_root: &std::path::Path) -> Result<ValidatedConfig, 
         ProjConfig::default()
     };
 
-    let validated = config.validate_and_resolve()?;
+    let validated = config.validate_and_resolve(project_root, is_dev)?;
 
     // Execute the Ignore Demarcation Engine
     update_ignores(project_root, &validated)?;
@@ -319,9 +383,9 @@ pub fn yml_read_from(project_root: &std::path::Path) -> Result<ValidatedConfig, 
 /// use proj::yml::yml_read;
 /// let config = yml_read();
 /// ```
-pub fn yml_read() -> Result<ValidatedConfig, String> {
+pub fn yml_read(is_dev: bool) -> Result<ValidatedConfig, String> {
     let project_root = root().ok_or("Could not find project root")?;
-    yml_read_from(&project_root)
+    yml_read_from(&project_root, is_dev)
 }
 
 /// Mock integration hook for legacy compatibility workflows.
@@ -348,5 +412,48 @@ mod tests {
     #[test]
     fn test_yml_get() {
         assert_eq!(yml_get(), "projr yml content");
+    }
+
+    #[test]
+    fn test_git_config_opt_parsing() {
+        let yaml_bool_true = "
+directories: {}
+build:
+  git: true
+";
+        let config_true: ProjConfig = serde_yaml::from_str(yaml_bool_true).unwrap();
+        assert_eq!(config_true.build.git, GitConfigOpt::Boolean(true));
+
+        let yaml_bool_false = "
+directories: {}
+build:
+  git: false
+";
+        let config_false: ProjConfig = serde_yaml::from_str(yaml_bool_false).unwrap();
+        assert_eq!(config_false.build.git, GitConfigOpt::Boolean(false));
+
+        let yaml_detailed = "
+directories: {}
+build:
+  git:
+    commit: true
+    push: false
+";
+        let config_detailed: ProjConfig = serde_yaml::from_str(yaml_detailed).unwrap();
+        assert_eq!(
+            config_detailed.build.git,
+            GitConfigOpt::Detailed(GitConfig { commit: Some(true), push: Some(false) })
+        );
+
+        let yaml_default = "
+directories: {}
+build:
+  scripts: []
+";
+        let config_default: ProjConfig = serde_yaml::from_str(yaml_default).unwrap();
+        assert_eq!(
+            config_default.build.git,
+            GitConfigOpt::Detailed(GitConfig { commit: None, push: None })
+        );
     }
 }
