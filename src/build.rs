@@ -160,7 +160,14 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
             resolved_files = resolve_fallback_scripts(project_root)?;
         }
     }
-    let resolved_python_cmd = run_pre_flight_checks(&resolved_files, quarto_exists, bookdown_exists)?;
+    let resolved_python_cmd = run_pre_flight_checks(
+        project_root,
+        &config,
+        is_prod_run,
+        &resolved_files,
+        quarto_exists,
+        bookdown_exists,
+    )?;
 
     // 6. Git Pre-Snapshot
     if config.git.commit {
