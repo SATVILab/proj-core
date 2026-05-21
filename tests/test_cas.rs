@@ -148,6 +148,7 @@ fn test_verify_remote_integrity() {
         restrictions: Default::default(),
         clear_output: None,
         old_dev_remove: None,
+        parameters: serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
     };
 
     assert!(verify_remote_integrity("my_remote", &config).is_ok());

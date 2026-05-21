@@ -58,6 +58,14 @@ pub struct ProjConfig {
     pub build: BuildConfig,
     #[serde(default)]
     pub dev: DevConfig,
+    /// Captures arbitrary parameters maps under any matching alias keys.
+    /// Evaluates aliases in order: "parameters", "parameter", "params", "param".
+    #[serde(alias = "parameter", alias = "params", alias = "param", default = "default_parameters")]
+    pub parameters: serde_yaml::Value,
+}
+
+fn default_parameters() -> serde_yaml::Value {
+    serde_yaml::Value::Mapping(serde_yaml::Mapping::new())
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -235,9 +243,11 @@ fn default_ignore() -> IgnoreConfig {
 ///     git: ResolvedGitConfig { commit: false, push: false }, 
 ///     restrictions: RestrictionsConfig::default(), 
 ///     clear_output: None, 
-///     old_dev_remove: None 
+///     old_dev_remove: None,
+///     parameters: Default::default()
 /// };
 /// ```
+#[derive(Debug)]
 pub struct ValidatedConfig {
     pub remotes: RemotesConfig,
     pub dest: Vec<String>,
@@ -247,6 +257,7 @@ pub struct ValidatedConfig {
     pub restrictions: RestrictionsConfig,
     pub clear_output: Option<String>,
     pub old_dev_remove: Option<bool>,
+    pub parameters: serde_yaml::Value,
 }
 
 /// Represents a validated directory with an absolute or properly referenced system path.
@@ -258,6 +269,7 @@ pub struct ValidatedConfig {
 /// use proj::yml::{ResolvedDir, IgnoreConfig};
 /// let resolved = ResolvedDir { path: PathBuf::from("_raw"), ignore: IgnoreConfig::Single("all".to_string()) };
 /// ```
+#[derive(Debug)]
 pub struct ResolvedDir {
     pub path: PathBuf,
     pub ignore: IgnoreConfig,
@@ -390,6 +402,7 @@ impl ProjConfig {
             restrictions: self.build.restrictions.clone(),
             clear_output: self.build.clear_output.clone(),
             old_dev_remove: self.dev.old_dev_remove,
+            parameters: self.parameters.clone(),
         })
     }
 }
@@ -421,7 +434,8 @@ impl ValidatedConfig {
     ///     git: ResolvedGitConfig { commit: false, push: false }, 
     ///     restrictions: RestrictionsConfig::default(), 
     ///     clear_output: None, 
-    ///     old_dev_remove: None 
+    ///     old_dev_remove: None,
+    ///     parameters: Default::default()
     /// };
     /// let path = config.get_path(&PathBuf::from("/mock/root"), "raw-data").unwrap();
     /// assert_eq!(path, PathBuf::from("/mock/root/_raw/data"));
@@ -508,6 +522,17 @@ pub fn yml_read_from(project_root: &std::path::Path, is_dev: bool) -> Result<Val
 
     let config: ProjConfig = if yml_path.exists() {
         let content = fs::read_to_string(&yml_path).map_err(|e| e.to_string())?;
+
+        // Multi-alias conflict safeguard
+        let raw_value: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+        if let serde_yaml::Value::Mapping(map) = &raw_value {
+            let aliases = ["parameters", "parameter", "params", "param"];
+            let found_count = aliases.iter().filter(|&a| map.contains_key(&serde_yaml::Value::String(a.to_string()))).count();
+            if found_count > 1 {
+                return Err("Configuration error: multiple 'parameters' aliases found in _proj.yml.".to_string());
+            }
+        }
+
         serde_yaml::from_str(&content).map_err(|e| e.to_string())?
     } else {
         ProjConfig::default()
@@ -519,6 +544,130 @@ pub fn yml_read_from(project_root: &std::path::Path, is_dev: bool) -> Result<Val
     update_ignores(project_root, &validated)?;
 
     Ok(validated)
+}
+
+/// Extracts a deeply nested parameter value from the loaded project configuration.
+///
+/// Iteratively traverses the parsed arbitrary parameters tree using a slice of string keys.
+///
+/// # Arguments
+/// * `validated` - The fully loaded and validated configuration.
+/// * `keys` - A slice of keys representing the path to the desired parameter.
+///
+/// # Returns
+///
+/// Returns `Some(serde_yaml::Value)` containing the found mapping, scalar, or sequence if the path matches exactly.
+/// Returns the full root parameter tree if `keys` is empty.
+/// Returns `None` if any segment of the path is missing or points to a non-mapping scalar before traversal is complete.
+///
+/// ```rust
+/// use proj::yml::{ValidatedConfig, get_parameter};
+/// use std::collections::HashMap;
+/// use serde_yaml::{Value, Mapping};
+///
+/// let mut map = Mapping::new();
+/// map.insert(Value::String("a".to_string()), Value::String("b".to_string()));
+/// let mut config = ValidatedConfig {
+///     remotes: Default::default(), dest: vec![], config: Default::default(),
+///     directories: HashMap::new(), git: proj::yml::ResolvedGitConfig { commit: false, push: false },
+///     restrictions: Default::default(), clear_output: None, old_dev_remove: None,
+///     parameters: Value::Mapping(map),
+/// };
+///
+/// let val = get_parameter(&config, &["a"]);
+/// assert_eq!(val, Some(Value::String("b".to_string())));
+/// ```
+pub fn get_parameter(validated: &ValidatedConfig, keys: &[&str]) -> Option<serde_yaml::Value> {
+    let mut current = &validated.parameters;
+
+    if keys.is_empty() {
+        return Some(current.clone());
+    }
+
+    for key in keys {
+        if let serde_yaml::Value::Mapping(map) = current {
+            let yml_key = serde_yaml::Value::String((*key).to_string());
+            if let Some(next) = map.get(&yml_key) {
+                current = next;
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        }
+    }
+
+    Some(current.clone())
+}
+
+/// Scans the target `_proj.yml` configuration file and intelligently injects a clean `parameters: {}`
+/// mapping block if no parameter-related aliases (`parameters`, `parameter`, `params`, `param`) are found.
+///
+/// This mutation is idempotent and will cleanly return `false` if any structural parameter block already exists.
+///
+/// # Arguments
+/// * `project_root` - A reference to the root path containing the `_proj.yml` configuration.
+///
+/// # Returns
+///
+/// Returns `Ok(true)` if the parameters block was successfully injected.
+/// Returns `Ok(false)` if the file already contains a parameters definition (skips modification).
+/// Returns an error string if file I/O or YAML parsing fails severely.
+///
+/// ```rust
+/// use proj::yml::add_empty_parameters_block;
+/// use std::fs;
+/// use tempfile::TempDir;
+///
+/// let temp = TempDir::new().unwrap();
+/// let root_path = temp.path();
+/// fs::write(root_path.join("_proj.yml"), "directories:\n  raw:\n    ignore: all\n").unwrap();
+///
+/// let result = add_empty_parameters_block(root_path).unwrap();
+/// assert!(result);
+///
+/// let content = fs::read_to_string(root_path.join("_proj.yml")).unwrap();
+/// assert!(content.contains("parameters: {}"));
+/// ```
+pub fn add_empty_parameters_block(project_root: &std::path::Path) -> Result<bool, String> {
+    let yml_path = project_root.join("_proj.yml");
+
+    if !yml_path.exists() {
+        return Ok(false); // Do not create a new file if one doesn't exist
+    }
+
+    let content = fs::read_to_string(&yml_path).map_err(|e| e.to_string())?;
+
+    let raw_value: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+
+    if let serde_yaml::Value::Mapping(mut map) = raw_value {
+        let aliases = ["parameters", "parameter", "params", "param"];
+        let found = aliases.iter().any(|&a| map.contains_key(&serde_yaml::Value::String(a.to_string())));
+
+        if found {
+            return Ok(false);
+        }
+
+        map.insert(
+            serde_yaml::Value::String("parameters".to_string()),
+            serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
+        );
+
+        let new_content = serde_yaml::to_string(&map).map_err(|e| e.to_string())?;
+        fs::write(&yml_path, new_content).map_err(|e| e.to_string())?;
+
+        return Ok(true);
+    } else {
+        // If the config file is empty or not a map, recreate it as a map with parameters
+        let mut map = serde_yaml::Mapping::new();
+        map.insert(
+            serde_yaml::Value::String("parameters".to_string()),
+            serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
+        );
+        let new_content = serde_yaml::to_string(&map).map_err(|e| e.to_string())?;
+        fs::write(&yml_path, new_content).map_err(|e| e.to_string())?;
+        return Ok(true);
+    }
 }
 
 /// Thin production wrapper: Reads, validates, and initializes the local `_proj.yml` configuration mapping using implicit system root.
@@ -604,5 +753,150 @@ build:
             config_default.build.git,
             GitConfigOpt::Detailed(GitConfig { commit: None, push: None })
         );
+    }
+}
+
+#[cfg(test)]
+mod parameter_tests {
+    use super::*;
+    use tempfile::TempDir;
+    use std::fs;
+
+    #[test]
+    fn test_parameter_aliases() {
+        let yaml_params = "
+params:
+  key1: val1
+";
+        let config: ProjConfig = serde_yaml::from_str(yaml_params).unwrap();
+        assert_eq!(config.parameters["key1"], "val1");
+
+        let yaml_parameter = "
+parameter:
+  key1: val1
+";
+        let config2: ProjConfig = serde_yaml::from_str(yaml_parameter).unwrap();
+        assert_eq!(config2.parameters["key1"], "val1");
+    }
+
+    #[test]
+    fn test_multiple_aliases_conflict() {
+        let temp = TempDir::new().unwrap();
+        let root_path = temp.path();
+        fs::write(root_path.join("VERSION"), "v1.0.0").unwrap();
+        let yaml_conflict = "
+parameters:
+  key1: val1
+params:
+  key2: val2
+";
+        fs::write(root_path.join("_proj.yml"), yaml_conflict).unwrap();
+        let result = yml_read_from(root_path, false);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("multiple 'parameters' aliases found"));
+    }
+
+    #[test]
+    fn test_get_parameter_shallow() {
+        let yaml = "
+parameters:
+  model: random_forest
+";
+        let temp = TempDir::new().unwrap();
+        let root_path = temp.path();
+        fs::write(root_path.join("VERSION"), "v1.0.0").unwrap();
+        fs::write(root_path.join("_proj.yml"), yaml).unwrap();
+        let config = yml_read_from(root_path, false).unwrap();
+
+        let val = get_parameter(&config, &["model"]).unwrap();
+        assert_eq!(val, serde_yaml::Value::String("random_forest".to_string()));
+    }
+
+    #[test]
+    fn test_get_parameter_deep() {
+        let yaml = "
+parameters:
+  model:
+    type: random_forest
+    hyperparameters:
+      trees: 100
+      depth: 5
+";
+        let temp = TempDir::new().unwrap();
+        let root_path = temp.path();
+        fs::write(root_path.join("VERSION"), "v1.0.0").unwrap();
+        fs::write(root_path.join("_proj.yml"), yaml).unwrap();
+        let config = yml_read_from(root_path, false).unwrap();
+
+        let val = get_parameter(&config, &["model", "hyperparameters", "trees"]).unwrap();
+        assert_eq!(val, serde_yaml::Value::Number(100.into()));
+    }
+
+    #[test]
+    fn test_get_parameter_missing() {
+        let yaml = "
+parameters:
+  model: random_forest
+";
+        let temp = TempDir::new().unwrap();
+        let root_path = temp.path();
+        fs::write(root_path.join("VERSION"), "v1.0.0").unwrap();
+        fs::write(root_path.join("_proj.yml"), yaml).unwrap();
+        let config = yml_read_from(root_path, false).unwrap();
+
+        let val = get_parameter(&config, &["model", "not_exist"]);
+        assert!(val.is_none());
+
+        let val2 = get_parameter(&config, &["not_exist"]);
+        assert!(val2.is_none());
+    }
+
+    #[test]
+    fn test_get_parameter_empty_query() {
+        let yaml = "
+parameters:
+  model: random_forest
+";
+        let temp = TempDir::new().unwrap();
+        let root_path = temp.path();
+        fs::write(root_path.join("VERSION"), "v1.0.0").unwrap();
+        fs::write(root_path.join("_proj.yml"), yaml).unwrap();
+        let config = yml_read_from(root_path, false).unwrap();
+
+        let val = get_parameter(&config, &[]).unwrap();
+        let mut expected_map = serde_yaml::Mapping::new();
+        expected_map.insert(
+            serde_yaml::Value::String("model".to_string()),
+            serde_yaml::Value::String("random_forest".to_string())
+        );
+        assert_eq!(val, serde_yaml::Value::Mapping(expected_map));
+    }
+
+    #[test]
+    fn test_add_empty_parameters_block() {
+        let temp = TempDir::new().unwrap();
+        let root_path = temp.path();
+        fs::write(root_path.join("VERSION"), "v1.0.0").unwrap();
+
+        // No proj.yml
+        let res = add_empty_parameters_block(root_path).unwrap();
+        assert!(!res);
+
+        // Existing empty
+        fs::write(root_path.join("_proj.yml"), "directories:\n  raw:\n    ignore: all\n").unwrap();
+        let res = add_empty_parameters_block(root_path).unwrap();
+        assert!(res);
+        let content = fs::read_to_string(root_path.join("_proj.yml")).unwrap();
+        assert!(content.contains("parameters: {}"));
+
+        // Existing with parameter
+        let yaml_param = "
+directories: {}
+param:
+  key: val
+";
+        fs::write(root_path.join("_proj.yml"), yaml_param).unwrap();
+        let res = add_empty_parameters_block(root_path).unwrap();
+        assert!(!res);
     }
 }

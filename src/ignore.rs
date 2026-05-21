@@ -55,7 +55,8 @@ impl Default for IgnoreType {
 ///     git: ResolvedGitConfig { commit: false, push: false }, 
 ///     restrictions: RestrictionsConfig::default(), 
 ///     clear_output: None, 
-///     old_dev_remove: None 
+///     old_dev_remove: None,
+///     parameters: Default::default()
 /// };
 /// update_ignores_for(&root, &validated).unwrap();
 ///
