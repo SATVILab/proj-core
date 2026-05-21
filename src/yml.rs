@@ -33,11 +33,20 @@ pub struct ProjConfig {
 #[derive(Deserialize, Debug, Default, Clone)]
 pub struct BuildConfig {
     pub scripts: Option<Vec<String>>,
+    #[serde(default)]
+    pub hooks: HooksConfig,
     pub profile: Option<String>,
     #[serde(default)]
     pub git: GitConfigOpt,
     #[serde(default)]
     pub restrictions: RestrictionsConfig,
+}
+
+#[derive(Deserialize, Debug, Default, Clone, PartialEq)]
+pub struct HooksConfig {
+    pub pre: Option<Vec<String>>,
+    pub post: Option<Vec<String>>,
+    pub both: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -60,6 +69,7 @@ impl Default for RestrictionsConfig {
 #[derive(Deserialize, Debug, Default, Clone, PartialEq)]
 pub struct DevConfig {
     pub scripts: Option<Vec<String>>,
+    pub hooks: Option<HooksConfig>,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
