@@ -1,3 +1,4 @@
+pub mod init;
 pub mod version;
 pub mod yml;
 pub mod ignore;
@@ -15,3 +16,4 @@ pub use build::*;
 pub use git::*;
 pub use clear::*;
 pub use cas::*;
+pub use init::*;
