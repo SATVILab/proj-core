@@ -14,6 +14,8 @@ This command evaluates what files need to be run based on configuration layout p
 
 - **Pre-flight Dependency Checks:** Before modifying files or triggering git snapshots, the build engine statically resolves targets to identify dependencies. Depending on the matched scripts (such as `.Rmd`, `.qmd`, or `.py`) and configuration files, it asserts the availability of `Rscript` (verifying required R namespaces like `rmarkdown` or `bookdown`), `quarto`, or python executable commands. Any missing R packages can be resolved automatically via the `PROJR_AUTO_INSTALL` environment variable, or through an interactive terminal prompt.
 - **Production Build Restrictions:** Checks if branch rules (`only_branches`, `not_branches`) or upstream synchronicity (`not_behind`) are violated during a production build run.
+- **Remote Export Pipeline:** During the post-build phase, conditionally exports resolved local target outputs into a deduplicated Content-Addressable Storage (CAS) vault as defined via `build.dest` targets in `remotes.local`.
+- **System Git Provider Abstracted:** Git mutations safely resolve through a strictly encapsulated host `System Git` adapter, securely avoiding hanging inputs and ensuring older systems correctly push mutations.
 - **Mutual Exclusion Checking:** Before executing, `proj build` checks for project-level configurations (`_quarto.yml` and `_bookdown.yml`). If both exist and the build targets include Quarto or RMarkdown documents, it throws an error to prevent conflicting rendering.
 - **Explicit Execution (Path A):**
   - Define exact scripts, exclusions (starting with `!`), or sub-directory globs in `_proj.yml` under `build.scripts`.
