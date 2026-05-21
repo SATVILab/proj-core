@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 use std::io::{self, BufRead, IsTerminal};
-use crate::git::{get_github_token, execute_authenticated_git};
+use crate::git::{get_github_token, create_git_provider};
 
 pub fn find_python_command() -> Option<String> {
     let variants = ["python3", "python"];
@@ -83,7 +83,8 @@ pub fn run_pre_flight_checks(
                         return Err("Error: Git repository detected but no upstream tracking remote is configured. Configure a remote or set build.restrictions.not_behind to false.".to_string());
                     }
                 } else {
-                    if is_behind_remote(project_root, resolved_token.as_deref())? {
+                    let provider = create_git_provider(project_root, &config.config.git.engine, resolved_token.clone())?;
+                    if provider.is_behind_remote()? {
                         return Err("Error: The local branch is behind its tracking remote. Please pull or merge changes before building.".to_string());
                     }
                 }
@@ -232,35 +233,4 @@ fn has_tracking_remote(project_root: &std::path::Path) -> bool {
     } else {
         false
     }
-}
-
-fn is_behind_remote(project_root: &std::path::Path, token: Option<&str>) -> Result<bool, String> {
-    // Perform fetch
-    if let Some(t) = token {
-        execute_authenticated_git(&["fetch"], t, Some(project_root))?;
-    } else {
-        let mut fetch_cmd = Command::new("git");
-        fetch_cmd.args(["fetch"]);
-        fetch_cmd.current_dir(project_root);
-        let fetch_out = fetch_cmd.output().map_err(|e| format!("Failed to fetch from remote: {}", e))?;
-        if !fetch_out.status.success() {
-            return Err(format!("Failed to fetch from remote: {}", String::from_utf8_lossy(&fetch_out.stderr)));
-        }
-    }
-
-    // Check rev-list --count HEAD..@{u}
-    let mut cmd = Command::new("git");
-    cmd.args(["rev-list", "--count", "HEAD..@{u}"]);
-    cmd.current_dir(project_root);
-    let output = cmd.output().map_err(|e| format!("Failed to check if behind remote: {}", e))?;
-
-    if output.status.success() {
-        let count_str = String::from_utf8_lossy(&output.stdout);
-        if let Ok(count) = count_str.trim().parse::<u32>() {
-            return Ok(count > 0);
-        }
-    }
-
-    // If the above fails (e.g., no upstream configured, though we check it prior), assume not behind or return error
-    Err("Failed to determine if the local branch is behind the remote.".to_string())
 }

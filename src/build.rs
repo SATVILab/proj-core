@@ -35,11 +35,11 @@ pub enum BuildMode {
 /// let temp = TempDir::new().unwrap();
 /// std::fs::write(temp.path().join("VERSION"), "Version: v1.0.0").unwrap();
 /// // Create a dummy _proj.yml to avoid fallback searching which executes everything
-/// // We set push: false so we don't trigger GitHub token lookups in CI without env vars
-/// std::fs::write(temp.path().join("_proj.yml"), "build:\n  scripts: []\n  git:\n    push: false").unwrap();
+/// // We set push: false, commit: false and not_behind: false so we don't trigger GitHub token lookups or git profiles in CI without env vars
+/// std::fs::write(temp.path().join("_proj.yml"), "build:\n  scripts: []\n  restrictions:\n    not_behind: false\n  git:\n    commit: false\n    push: false").unwrap();
 /// build_project(temp.path(), BuildMode::ProdPatch, None, None).unwrap();
 /// ```
-use crate::git::{is_git_installed, check_git_profile, git_commit_all, git_push};
+use crate::git::create_git_provider;
 use crate::yml::yml_read_from;
 use crate::build_pre::run_pre_flight_checks;
 
@@ -55,11 +55,15 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     let config = yml_read_from(project_root, is_dev)?;
 
     // 2. Git Capability Audit
-    if config.git.commit {
-        if !is_git_installed() {
-            return Err("Git is required for commit but not found on system PATH.".to_string());
+    let mut git_provider = None;
+    if config.git.commit || config.git.push {
+        let provider = create_git_provider(project_root, &config.config.git.engine, None)?;
+        if !provider.is_available() {
+            return Err("Git engine is required for commit/push but is not available.".to_string());
         }
-        check_git_profile(Some(project_root))?;
+        provider.get_user_name()?;
+        provider.get_user_email()?;
+        git_provider = Some(provider);
     }
 
     // 3. Resolve configs and hooks
@@ -248,9 +252,16 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
         }
     }
 
+    // Re-create the git provider if we resolved a token during pre-flight checks
+    if (config.git.commit || config.git.push) && resolved_token.is_some() {
+        git_provider = Some(create_git_provider(project_root, &config.config.git.engine, resolved_token.clone())?);
+    }
+
     // 6. Git Pre-Snapshot
     if config.git.commit {
-        git_commit_all("Snapshot pre-build", Some(project_root))?;
+        if let Some(provider) = &git_provider {
+            provider.commit_all("Snapshot pre-build")?;
+        }
     }
 
     // ==========================================
@@ -282,7 +293,9 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
                     _ => format!("Build v{}", ver_str),
                 };
 
-                git_commit_all(&final_message, Some(project_root))?;
+                if let Some(provider) = &git_provider {
+                    provider.commit_all(&final_message)?;
+                }
             }
 
             // Execute Post-Build Hooks (after post-build commit, before push)
@@ -301,7 +314,9 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
 
             if config.git.commit {
                 if config.git.push {
-                    git_push(Some(project_root), resolved_token.as_deref())?;
+                    if let Some(provider) = &git_provider {
+                        provider.push()?;
+                    }
                 }
             }
             Ok(())

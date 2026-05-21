@@ -31,6 +31,16 @@ pub struct ProjConfig {
     pub dev: DevConfig,
 }
 
+/// Represents the underlying git engine.
+#[derive(Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum GitEngine {
+    #[default]
+    Auto,
+    System,
+    Gix,
+}
+
 /// Represents the top-level configuration key `config` in `_proj.yml`.
 #[derive(Deserialize, Debug, Default, Clone)]
 pub struct GlobalConfig {
@@ -43,12 +53,15 @@ pub struct GlobalConfig {
 pub struct GeneralGitConfig {
     #[serde(default = "default_use_proj_cred_helper")]
     pub use_proj_cred_helper: bool,
+    #[serde(default)]
+    pub engine: GitEngine,
 }
 
 impl Default for GeneralGitConfig {
     fn default() -> Self {
         Self {
             use_proj_cred_helper: true,
+            engine: GitEngine::Auto,
         }
     }
 }
@@ -500,6 +513,39 @@ mod tests {
     #[test]
     fn test_yml_get() {
         assert_eq!(yml_get(), "projr yml content");
+    }
+
+    #[test]
+    fn test_git_engine_parsing() {
+        let yaml_auto = "
+config:
+  git:
+    engine: auto
+";
+        let config_auto: ProjConfig = serde_yaml::from_str(yaml_auto).unwrap();
+        assert_eq!(config_auto.config.git.engine, GitEngine::Auto);
+
+        let yaml_system = "
+config:
+  git:
+    engine: system
+";
+        let config_system: ProjConfig = serde_yaml::from_str(yaml_system).unwrap();
+        assert_eq!(config_system.config.git.engine, GitEngine::System);
+
+        let yaml_gix = "
+config:
+  git:
+    engine: gix
+";
+        let config_gix: ProjConfig = serde_yaml::from_str(yaml_gix).unwrap();
+        assert_eq!(config_gix.config.git.engine, GitEngine::Gix);
+
+        let yaml_default = "
+config: {}
+";
+        let config_default: ProjConfig = serde_yaml::from_str(yaml_default).unwrap();
+        assert_eq!(config_default.config.git.engine, GitEngine::Auto);
     }
 
     #[test]
