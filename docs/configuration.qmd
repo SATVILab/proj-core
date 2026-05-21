@@ -40,3 +40,11 @@ The `_proj.yml` file can also contain a `build` block to configure the behavior 
 - **`git`**: An optional Git integration configuration. This can be a boolean toggle or an object mapping out detailed toggles:
   - **`commit`**: Whether to automatically perform pre and post-build commits (defaults to false).
   - **`push`**: Whether to automatically push a successful build commit to the remote repository (defaults to false).
+- **`restrictions`**: Configuration block to enforce Git checks specifically during production builds:
+  - **`only_branches`**: A list of allowed branch names. Production builds will abort if the current branch is not in this list.
+  - **`not_branches`**: A list of restricted branch names. Production builds will abort if the current branch is in this list.
+  - **`not_behind`**: Boolean (defaults to `true`). If enabled, production builds will verify that the local branch has an upstream tracking remote and is not behind it, aborting if the local branch needs to pull upstream changes.
+
+## Environment Variables
+
+- **`PROJR_AUTO_INSTALL`**: During the `proj build` pre-flight checks, if required R packages (like `bookdown` or `rmarkdown`) are missing, this environment variable controls remediation. If set to `true`, packages are automatically installed. If absent or set to `false`, the tool defaults to an interactive terminal prompt (if available) or fails hard.
