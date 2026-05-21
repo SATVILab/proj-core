@@ -52,6 +52,24 @@ pub enum Commands {
     },
     /// Build operations
     Build {
+        /// Build a major version
+        #[arg(long, group = "bump")]
+        major: bool,
+
+        /// Build a minor version
+        #[arg(long, group = "bump")]
+        minor: bool,
+
+        /// Build a patch version
+        #[arg(long, group = "bump")]
+        patch: bool,
+
+        /// Optional profile
+        #[arg(long)]
+        profile: Option<String>,
+    },
+    /// Dev Build operations
+    BuildDev {
         /// Optional profile
         #[arg(long)]
         profile: Option<String>,
@@ -156,9 +174,30 @@ fn main() {
                 }
             }
         },
-        Commands::Build { profile } => {
+        Commands::Build { major, minor, patch: _, profile } => {
             if let Some(root) = proj::root() {
-                if let Err(e) = proj::build_project(&root, profile.as_deref()) {
+                let mode = if *major {
+                    proj::BuildMode::ProdMajor
+                } else if *minor {
+                    proj::BuildMode::ProdMinor
+                } else {
+                    proj::BuildMode::ProdPatch
+                };
+
+                if let Err(e) = proj::build_project(&root, mode, profile.as_deref()) {
+                    eprintln!("Build failed: {}", e);
+                    std::process::exit(1);
+                } else {
+                    println!("Build completed successfully.");
+                }
+            } else {
+                eprintln!("Error finding project root");
+                std::process::exit(1);
+            }
+        },
+        Commands::BuildDev { profile } => {
+            if let Some(root) = proj::root() {
+                if let Err(e) = proj::build_project(&root, proj::BuildMode::Dev, profile.as_deref()) {
                     eprintln!("Build failed: {}", e);
                     std::process::exit(1);
                 } else {
