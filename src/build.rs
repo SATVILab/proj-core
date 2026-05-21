@@ -60,6 +60,11 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     let is_prod_run = matches!(mode, BuildMode::ProdMajor | BuildMode::ProdMinor | BuildMode::ProdPatch);
 
     // ==========================================
+    // STEP A: Activate Environment Guard
+    // ==========================================
+    let _env_guard = crate::env::EnvGuard::activate(cli_profile, project_root)?;
+
+    // ==========================================
     // STEP B: Pre-Build Validation & Execution
     // ==========================================
 
