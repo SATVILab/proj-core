@@ -40,6 +40,7 @@ pub struct BuildConfig {
     pub git: GitConfigOpt,
     #[serde(default)]
     pub restrictions: RestrictionsConfig,
+    pub clear_output: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Default, Clone, PartialEq)]
@@ -70,6 +71,7 @@ impl Default for RestrictionsConfig {
 pub struct DevConfig {
     pub scripts: Option<Vec<String>>,
     pub hooks: Option<HooksConfig>,
+    pub old_dev_remove: Option<bool>,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -155,12 +157,14 @@ fn default_ignore() -> IgnoreConfig {
 /// ```rust
 /// use std::collections::HashMap;
 /// use proj::yml::{ValidatedConfig, ResolvedGitConfig, RestrictionsConfig};
-/// let config = ValidatedConfig { directories: HashMap::new(), git: ResolvedGitConfig { commit: false, push: false }, restrictions: RestrictionsConfig::default() };
+/// let config = ValidatedConfig { directories: HashMap::new(), git: ResolvedGitConfig { commit: false, push: false }, restrictions: RestrictionsConfig::default(), clear_output: None, old_dev_remove: None };
 /// ```
 pub struct ValidatedConfig {
     pub directories: HashMap<String, ResolvedDir>,
     pub git: ResolvedGitConfig,
     pub restrictions: RestrictionsConfig,
+    pub clear_output: Option<String>,
+    pub old_dev_remove: Option<bool>,
 }
 
 /// Represents a validated directory with an absolute or properly referenced system path.
@@ -286,6 +290,8 @@ impl ProjConfig {
             directories: resolved,
             git: resolved_git,
             restrictions: self.build.restrictions.clone(),
+            clear_output: self.build.clear_output.clone(),
+            old_dev_remove: self.dev.old_dev_remove,
         })
     }
 }
@@ -311,7 +317,7 @@ impl ValidatedConfig {
     ///     ignore: IgnoreConfig::Single("all".to_string())
     /// });
     ///
-    /// let config = ValidatedConfig { directories: dirs, git: ResolvedGitConfig { commit: false, push: false }, restrictions: RestrictionsConfig::default() };
+    /// let config = ValidatedConfig { directories: dirs, git: ResolvedGitConfig { commit: false, push: false }, restrictions: RestrictionsConfig::default(), clear_output: None, old_dev_remove: None };
     /// let path = config.get_path(&PathBuf::from("/mock/root"), "raw-data").unwrap();
     /// assert_eq!(path, PathBuf::from("/mock/root/_raw/data"));
     /// ```
