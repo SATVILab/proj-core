@@ -26,10 +26,11 @@ jobs:
       - name: Enable Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      # Installs cargo-deb via pre-compiled binary instead of building from source
+      # Installs cargo-deb using cargo binstall for speed
       - name: Install cargo-deb quickly
         run: |
-          curl -LSc - https://github.com/mmstick/cargo-deb/releases/latest/download/cargo-deb_amd64.tar.gz | tar -xzf - -C ~/.cargo/bin
+          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+          cargo binstall -y cargo-deb
 
       - name: Compile Release Binary and Debian Package
         run: |
@@ -64,6 +65,7 @@ jobs:
           cargo build --release
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           Copy-Item "target\release\proj.exe" -Destination "dist\proj_windows_amd64.exe" -Force
+          Copy-Item "target\release\proj.exe" -Destination "dist\proj-windows-amd64.exe" -Force
 
       - name: Upload Built Windows Artifacts
         uses: actions/upload-artifact@v4
