@@ -40,6 +40,7 @@ pub enum BuildMode {
 /// ```
 use crate::git::{is_git_installed, check_git_profile, git_commit_all, git_push};
 use crate::yml::yml_read_from;
+use crate::build_pre::run_pre_flight_checks;
 
 pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&str>, description: Option<&str>) -> Result<(), String> {
     let is_dev = mode == BuildMode::Dev;
@@ -118,11 +119,6 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
 
     // 5. Git auto-ignore (already handled in yml_read_from via update_ignores)
 
-    // 6. Git Pre-Snapshot
-    if config.git.commit {
-        git_commit_all("Snapshot pre-build", Some(project_root))?;
-    }
-
     let quarto_exists = project_root.join("_quarto.yml").exists();
     let bookdown_exists = project_root.join("_bookdown.yml").exists();
 
@@ -141,6 +137,22 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
         }
     }
 
+    // Pre-flight Environment Verification
+    let mut resolved_files = Vec::new();
+    if let Some(scripts) = &build_scripts {
+        resolved_files = resolve_explicit_scripts(project_root, scripts)?;
+    } else {
+        if !quarto_exists && !bookdown_exists {
+            resolved_files = resolve_fallback_scripts(project_root)?;
+        }
+    }
+    let resolved_python_cmd = run_pre_flight_checks(&resolved_files, quarto_exists, bookdown_exists)?;
+
+    // 6. Git Pre-Snapshot
+    if config.git.commit {
+        git_commit_all("Snapshot pre-build", Some(project_root))?;
+    }
+
     // ==========================================
     // STEP C: Core Document Compilation
     // ==========================================
@@ -148,7 +160,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     // Isolate execution logic inside catch_unwind
     let pr = project_root.to_path_buf();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        execute_build_pipeline(&pr, build_scripts, profile, quarto_exists, bookdown_exists)
+        execute_build_pipeline(&pr, build_scripts, profile, quarto_exists, bookdown_exists, resolved_python_cmd.as_deref())
     }));
 
     match result {
@@ -202,6 +214,7 @@ fn execute_build_pipeline(
     profile: Option<String>,
     quarto_exists: bool,
     bookdown_exists: bool,
+    resolved_python_cmd: Option<&str>,
 ) -> Result<(), String> {
     if let Some(scripts) = build_scripts {
         // Path A: Explicit Configuration via build.scripts
@@ -259,7 +272,7 @@ fn execute_build_pipeline(
             // Execute pre-scripts
             for script in pre_scripts {
                 let p = profile.clone();
-                execute_script(&script, p.as_deref())?;
+                execute_script(&script, p.as_deref(), resolved_python_cmd)?;
             }
 
             // Execute doc clusters
@@ -274,13 +287,13 @@ fn execute_build_pipeline(
             // Execute post-scripts
             for script in post_scripts {
                 let p = profile.clone();
-                execute_script(&script, p.as_deref())?;
+                execute_script(&script, p.as_deref(), resolved_python_cmd)?;
             }
         } else {
             // No project files, just execute in exact relative order
             for file in resolved_files {
                 let p = profile.clone();
-                execute_script(&file, p.as_deref())?;
+                execute_script(&file, p.as_deref(), resolved_python_cmd)?;
             }
         }
 
@@ -298,7 +311,7 @@ fn execute_build_pipeline(
         } else {
             let resolved_files = resolve_fallback_scripts(project_root)?;
             for file in resolved_files {
-                execute_script(&file, profile.as_deref())?;
+                execute_script(&file, profile.as_deref(), resolved_python_cmd)?;
             }
         }
     }
@@ -310,7 +323,7 @@ fn execute_build_pipeline(
 ///
 /// Supports exclusion globs starting with `!`, strictly matches root documents when no sub-directory
 /// prefix is provided, and captures valid formats under sub-directories.
-fn resolve_explicit_scripts(project_root: &Path, scripts: &[String]) -> Result<Vec<PathBuf>, String> {
+pub(crate) fn resolve_explicit_scripts(project_root: &Path, scripts: &[String]) -> Result<Vec<PathBuf>, String> {
     if scripts.is_empty() {
         return Ok(Vec::new()); // The Explicit Empty Exception ("Don't Run Anything")
     }
@@ -438,7 +451,7 @@ fn rewrite_bookdown_yml(project_root: &Path, rmd_files: &[PathBuf]) -> Result<()
 /// Evaluates Path B: Fallback Automated Auto-Discovery
 ///
 /// Sweeps for `.qmd`, `.Rmd`, `.R`, `.py` in that strict order.
-fn resolve_fallback_scripts(project_root: &Path) -> Result<Vec<PathBuf>, String> {
+pub(crate) fn resolve_fallback_scripts(project_root: &Path) -> Result<Vec<PathBuf>, String> {
     let mut files = Vec::new();
 
     // Shallow directory sweep
@@ -483,7 +496,7 @@ fn resolve_fallback_scripts(project_root: &Path) -> Result<Vec<PathBuf>, String>
 use std::process::Command;
 
 /// Executes a single script in an isolated subprocess.
-fn execute_script(script_path: &Path, profile: Option<&str>) -> Result<(), String> {
+fn execute_script(script_path: &Path, profile: Option<&str>, resolved_python_cmd: Option<&str>) -> Result<(), String> {
     let parent_dir = script_path.parent().unwrap_or(Path::new(""));
     let ext = script_path.extension().and_then(|s| s.to_str()).unwrap_or("");
     let mut cmd = match ext {
@@ -493,7 +506,8 @@ fn execute_script(script_path: &Path, profile: Option<&str>) -> Result<(), Strin
             c
         },
         "py" => {
-            let mut c = Command::new("python");
+            let python_exe = resolved_python_cmd.unwrap_or("python");
+            let mut c = Command::new(python_exe);
             c.arg(script_path);
             c
         },
