@@ -142,9 +142,5 @@ printf '%s\n' "$INSTALL_DIR" > "$STATE_FILE"
 echo
 echo -e "${GREEN}✓ Installed ${BINARY_NAME} (${DOWNLOADED_ASSET}) to ${INSTALL_DIR}/${BINARY_NAME}${NC}"
 
-echo "Installing bundled dependencies..."
-if ! command -v repos >/dev/null 2>&1; then
-  "${INSTALL_DIR}/${BINARY_NAME}" repo install repos
-fi
 
 echo "Run: ${BINARY_NAME} --help"

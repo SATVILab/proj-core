@@ -141,9 +141,5 @@ New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
 Set-Content -LiteralPath $stateFile -Value $installDir -Encoding ascii
 Write-Host "Installed $binaryName ($downloadedAsset) to $target" -ForegroundColor Green
 
-Write-Host "Installing bundled dependencies..."
-if (!(Get-Command repos -ErrorAction SilentlyContinue)) {
-    & "$target" repo install repos
-}
 
 Write-Host "Run: $binaryName --help"
