@@ -51,7 +51,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     // ==========================================
 
     // 1. Config Audit
-    let config = yml_read_from(project_root, is_dev)?;
+    let mut config = yml_read_from(project_root, is_dev)?;
 
     // 2. Git Capability Audit
     if config.git.commit {
@@ -233,6 +233,41 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
 
     // 6. Git auto-ignore (already handled in yml_read_from via update_ignores)
 
+    // 6.5 Sidecar Output Redirection
+    let mut original_docs_path: Option<PathBuf> = None;
+    let mut original_docs_path_str = "docs".to_string(); // default if missing or can't compute
+    let mut actual_docs_key = "docs".to_string();
+
+    if quarto_exists || bookdown_exists {
+        if let Some((k, docs_config)) = config.directories.iter().find(|(k, _)| k.to_lowercase() == "docs") {
+            actual_docs_key = k.clone();
+            let path = docs_config.path.clone();
+            original_docs_path_str = path.strip_prefix(project_root).unwrap_or(&path).to_string_lossy().to_string();
+            original_docs_path = Some(path);
+        }
+
+        let isolated_docs_path = project_root.join("_tmp").join("projr").join(&current_version).join("docs");
+        let isolated_docs_path_str = isolated_docs_path.strip_prefix(project_root).unwrap_or(&isolated_docs_path).to_string_lossy().to_string();
+
+        if quarto_exists {
+            rewrite_engine_output_dir(project_root, "quarto", &isolated_docs_path_str)?;
+        }
+        if bookdown_exists {
+            rewrite_engine_output_dir(project_root, "bookdown", &isolated_docs_path_str)?;
+        }
+
+        if original_docs_path.is_some() {
+            if let Some(docs_mut) = config.directories.get_mut(&actual_docs_key) {
+                docs_mut.path = isolated_docs_path;
+            }
+        } else {
+            config.directories.insert("docs".to_string(), crate::yml::ResolvedDir {
+                path: isolated_docs_path,
+                ignore: crate::yml::IgnoreConfig::Single("git".to_string()),
+            });
+        }
+    }
+
     // Execute Pre-Build Hooks
     if let Some(pre_hooks) = &hooks_config.pre {
         let pre_resolved = resolve_explicit_scripts(project_root, pre_hooks)?;
@@ -268,6 +303,23 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
             // ==========================================
             // STEP D: Post-Build Operations
             // ==========================================
+
+            // Restore Sidecar Configs
+            if quarto_exists {
+                let _ = rewrite_engine_output_dir(project_root, "quarto", &original_docs_path_str);
+            }
+            if bookdown_exists {
+                let _ = rewrite_engine_output_dir(project_root, "bookdown", &original_docs_path_str);
+            }
+            if quarto_exists || bookdown_exists {
+                if let Some(orig_path) = original_docs_path.as_ref() {
+                    if let Some(docs_mut) = config.directories.get_mut(&actual_docs_key) {
+                        docs_mut.path = orig_path.clone();
+                    }
+                } else {
+                    config.directories.remove(&actual_docs_key);
+                }
+            }
 
             let is_single_doc_engine = !quarto_exists && !bookdown_exists;
             let clear_output_env = std::env::var("PROJR_CLEAR_OUTPUT").ok();
@@ -306,6 +358,23 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
             Ok(())
         },
         Ok(Err(e)) => {
+            // Restore Sidecar Configs on failure
+            if quarto_exists {
+                let _ = rewrite_engine_output_dir(project_root, "quarto", &original_docs_path_str);
+            }
+            if bookdown_exists {
+                let _ = rewrite_engine_output_dir(project_root, "bookdown", &original_docs_path_str);
+            }
+            if quarto_exists || bookdown_exists {
+                if let Some(orig_path) = original_docs_path.as_ref() {
+                    if let Some(docs_mut) = config.directories.get_mut(&actual_docs_key) {
+                        docs_mut.path = orig_path.clone();
+                    }
+                } else {
+                    config.directories.remove(&actual_docs_key);
+                }
+            }
+
             if is_prod_run {
                 // Revert to Development State of Previous Baseline
                 let mut reverted = version_before_build.clone();
@@ -317,6 +386,23 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
             Err(e)
         }
         Err(_) => {
+            // Restore Sidecar Configs on failure
+            if quarto_exists {
+                let _ = rewrite_engine_output_dir(project_root, "quarto", &original_docs_path_str);
+            }
+            if bookdown_exists {
+                let _ = rewrite_engine_output_dir(project_root, "bookdown", &original_docs_path_str);
+            }
+            if quarto_exists || bookdown_exists {
+                if let Some(orig_path) = original_docs_path.as_ref() {
+                    if let Some(docs_mut) = config.directories.get_mut(&actual_docs_key) {
+                        docs_mut.path = orig_path.clone();
+                    }
+                } else {
+                    config.directories.remove(&actual_docs_key);
+                }
+            }
+
             if is_prod_run {
                 // Revert to Development State of Previous Baseline
                 let mut reverted = version_before_build.clone();
@@ -545,6 +631,61 @@ fn rewrite_quarto_yml(project_root: &Path, qmd_files: &[PathBuf]) -> Result<(), 
 
     let out_content = serde_yaml::to_string(&yaml).map_err(|e| e.to_string())?;
     fs::write(&quarto_path, out_content).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Dynamically rewrites the output directory for external engines (`_quarto.yml` or `_bookdown.yml`).
+pub(crate) fn rewrite_engine_output_dir(project_root: &Path, engine: &str, out_dir: &str) -> Result<(), String> {
+    if engine == "quarto" {
+        let quarto_path = project_root.join("_quarto.yml");
+        if !quarto_path.exists() {
+            return Ok(());
+        }
+        let content = fs::read_to_string(&quarto_path).map_err(|e| e.to_string())?;
+
+        let mut yaml: serde_yaml::Value = serde_yaml::from_str(&content).unwrap_or(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+
+        if !yaml.is_mapping() {
+            yaml = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
+        }
+
+        if let serde_yaml::Value::Mapping(ref mut map) = yaml {
+            let proj_key = serde_yaml::Value::String("project".to_string());
+            if !map.contains_key(&proj_key) {
+                map.insert(proj_key.clone(), serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+            }
+
+            if let Some(serde_yaml::Value::Mapping(proj_map)) = map.get_mut(&proj_key) {
+                let out_dir_key = serde_yaml::Value::String("output-dir".to_string());
+                proj_map.insert(out_dir_key, serde_yaml::Value::String(out_dir.to_string()));
+            }
+        }
+
+        let out_content = serde_yaml::to_string(&yaml).map_err(|e| e.to_string())?;
+        fs::write(&quarto_path, out_content).map_err(|e| e.to_string())?;
+
+    } else if engine == "bookdown" {
+        let bookdown_path = project_root.join("_bookdown.yml");
+        if !bookdown_path.exists() {
+            return Ok(());
+        }
+        let content = fs::read_to_string(&bookdown_path).map_err(|e| e.to_string())?;
+
+        let mut yaml: serde_yaml::Value = serde_yaml::from_str(&content).unwrap_or(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+
+        if !yaml.is_mapping() {
+            yaml = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
+        }
+
+        if let serde_yaml::Value::Mapping(ref mut map) = yaml {
+            let out_dir_key = serde_yaml::Value::String("output_dir".to_string());
+            map.insert(out_dir_key, serde_yaml::Value::String(out_dir.to_string()));
+        }
+
+        let out_content = serde_yaml::to_string(&yaml).map_err(|e| e.to_string())?;
+        fs::write(&bookdown_path, out_content).map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 
