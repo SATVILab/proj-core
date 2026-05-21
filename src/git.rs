@@ -11,11 +11,14 @@ pub fn is_git_installed() -> bool {
 
 /// Queries local, global, and system variables via `git config --get user.name` and `git config --get user.email`.
 /// If either stdout buffer returns blank or throws an error, return an explicit error string detailing exactly what config parameter is missing and how the user can configure it.
-pub fn check_git_profile() -> Result<(), String> {
+pub fn check_git_profile(current_dir: Option<&std::path::Path>) -> Result<(), String> {
     let check_config = |key: &str| -> Result<(), String> {
-        let output = Command::new("git")
-            .args(["config", "--get", key])
-            .output()
+        let mut cmd = Command::new("git");
+        cmd.args(["config", "--get", key]);
+        if let Some(dir) = current_dir {
+            cmd.current_dir(dir);
+        }
+        let output = cmd.output()
             .map_err(|e| format!("Failed to execute git config check for {}: {}", key, e))?;
 
         if !output.status.success() || String::from_utf8_lossy(&output.stdout).trim().is_empty() {

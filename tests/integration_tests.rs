@@ -23,6 +23,9 @@ fn test_missing_version_fallback_to_description() {
     // Ensure git init exists to prevent git add -A failing
     use std::process::Command;
     Command::new("git").arg("init").current_dir(root).output().unwrap();
+    // Configure mock git user for CI environments
+    Command::new("git").args(["config", "user.name", "Test User"]).current_dir(root).output().unwrap();
+    Command::new("git").args(["config", "user.email", "test@example.com"]).current_dir(root).output().unwrap();
 
     // Should create VERSION file containing v1.2.3.4 (after reading it, bumped for PROD patch)
     // Actually ProdPatch bumps patch -> 1.2.4.0
@@ -48,6 +51,9 @@ fn test_missing_version_fallback_to_default() {
     fs::write(root.join("_proj.yml"), "directories: {}").unwrap();
     use std::process::Command;
     Command::new("git").arg("init").current_dir(root).output().unwrap();
+    // Configure mock git user for CI environments
+    Command::new("git").args(["config", "user.name", "Test User"]).current_dir(root).output().unwrap();
+    Command::new("git").args(["config", "user.email", "test@example.com"]).current_dir(root).output().unwrap();
 
     let _ = build_project(root, BuildMode::ProdPatch, None, None);
 

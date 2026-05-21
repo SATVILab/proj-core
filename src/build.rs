@@ -57,7 +57,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
         if !is_git_installed() {
             return Err("Git is required for commit but not found on system PATH.".to_string());
         }
-        check_git_profile()?;
+        check_git_profile(Some(project_root))?;
     }
 
     // 3. VERSION Initialization Check
