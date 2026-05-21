@@ -48,6 +48,7 @@ The `_proj.yml` file can also contain a `build` block to configure the behavior 
   - **`only_branches`**: A list of allowed branch names. Production builds will abort if the current branch is not in this list.
   - **`not_branches`**: A list of restricted branch names. Production builds will abort if the current branch is in this list.
   - **`not_behind`**: Boolean (defaults to `true`). If enabled, production builds will verify that the local branch has an upstream tracking remote and is not behind it, aborting if the local branch needs to pull upstream changes.
+- **`clear_output`**: An optional string controlling workspace clearing routines for output directories. Can be set to `"pre"`, `"post"`, or `"never"`. If omitted, defaults to evaluating the `PROJR_CLEAR_OUTPUT` environment variable.
 
 ## Development Overrides
 
@@ -55,6 +56,7 @@ You can define a `dev` block to completely override specific configurations duri
 
 - **`scripts`**: A list of script paths or globs. During development builds, this array entirely overrides `build.scripts`. Providing an explicitly empty array (`[]`) results in a strict error to prevent silently running an empty development build.
 - **`hooks`**: A mapping identical to `build.hooks`. When specified, these completely replace `build.hooks` during a development build.
+- **`old_dev_remove`**: Boolean flag. When `true`, enables purging of legacy cache versions during development builds to save disk space.
 
 ## Environment Variables
 
