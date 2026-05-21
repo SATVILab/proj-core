@@ -25,7 +25,7 @@ fn test_missing_version_fallback_to_description() {
 
     // Should create VERSION file containing v1.2.3.4 (after reading it, bumped for PROD patch)
     // Actually ProdPatch bumps patch -> 1.2.4.0
-    let res = build_project(root, BuildMode::ProdPatch, None, None);
+    let _res = build_project(root, BuildMode::ProdPatch, None, None);
     // Might fail because execute_build_pipeline will try to execute stuff,
     // but the VERSION should be created before that.
     // Let's assert on the VERSION file creation.
