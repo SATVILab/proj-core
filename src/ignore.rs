@@ -23,13 +23,14 @@ use crate::yml::{ValidatedConfig, IgnoreConfig};
 /// let temp = TempDir::new().unwrap();
 /// let root = temp.path().to_path_buf();
 ///
+/// use proj::yml::ResolvedGitConfig;
 /// let mut dirs = HashMap::new();
 /// dirs.insert("raw".to_string(), ResolvedDir {
 ///     path: root.join("_raw"),
 ///     ignore: IgnoreConfig::Single("all".to_string())
 /// });
 ///
-/// let validated = ValidatedConfig { directories: dirs };
+/// let validated = ValidatedConfig { directories: dirs, git: ResolvedGitConfig { commit: false, push: false } };
 /// update_ignores_for(&root, &validated).unwrap();
 ///
 /// assert!(root.join(".gitignore").exists());

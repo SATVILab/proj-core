@@ -36,23 +36,65 @@ pub enum BuildMode {
 /// std::fs::write(temp.path().join("VERSION"), "Version: v1.0.0").unwrap();
 /// // Create a dummy _proj.yml to avoid fallback searching which executes everything
 /// std::fs::write(temp.path().join("_proj.yml"), "build:\n  scripts: []").unwrap();
-/// build_project(temp.path(), BuildMode::ProdPatch, None).unwrap();
+/// build_project(temp.path(), BuildMode::ProdPatch, None, None).unwrap();
 /// ```
-pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&str>) -> Result<(), String> {
-    let mut initial_version = version_get_from(project_root)
-        .ok_or_else(|| "Could not read or parse VERSION file in project root".to_string())?;
+use crate::git::{is_git_installed, check_git_profile, git_commit_all, git_push};
+use crate::yml::yml_read_from;
 
-    let version_before_build = initial_version.clone();
+pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&str>, description: Option<&str>) -> Result<(), String> {
+    let is_dev = mode == BuildMode::Dev;
     let is_prod_run = matches!(mode, BuildMode::ProdMajor | BuildMode::ProdMinor | BuildMode::ProdPatch);
 
-    // Development Cycle Version Logic
-    if mode == BuildMode::Dev {
+    // ==========================================
+    // STEP B: Pre-Build Validation & Execution
+    // ==========================================
+
+    // 1. Config Audit
+    let config = yml_read_from(project_root, is_dev)?;
+
+    // 2. Git Capability Audit
+    if config.git.commit {
+        if !is_git_installed() {
+            return Err("Git is required for commit but not found on system PATH.".to_string());
+        }
+        check_git_profile(Some(project_root))?;
+    }
+
+    // 3. VERSION Initialization Check
+    let mut initial_version = match version_get_from(project_root) {
+        Some(v) => v,
+        None => {
+            let desc_path = project_root.join("DESCRIPTION");
+            if desc_path.exists() {
+                let content = fs::read_to_string(&desc_path).map_err(|e| e.to_string())?;
+                let mut found_ver = None;
+                for line in content.lines() {
+                    if line.starts_with("Version:") {
+                        let ver_str = line.trim_start_matches("Version:").trim();
+                        if let Some(v) = crate::version::ProjVersion::parse(ver_str) {
+                            found_ver = Some(v);
+                            break;
+                        }
+                    }
+                }
+                found_ver.ok_or_else(|| "Could not extract a valid Version from DESCRIPTION file.".to_string())?
+            } else {
+                let v = crate::version::ProjVersion { major: 0, minor: 0, patch: 1, dev: 0 };
+                version_set_at(project_root, &v.to_string(true))?;
+                v
+            }
+        }
+    };
+
+    let version_before_build = initial_version.clone();
+
+    // 4. Version Bump
+    if is_dev {
         if initial_version.dev == 0 {
             initial_version.dev = 1;
             version_set_at(project_root, &initial_version.to_string(false))?;
         }
     } else {
-        // Production Cycle Version Bump Logic
         match mode {
             BuildMode::ProdMajor => {
                 initial_version.major += 1;
@@ -74,6 +116,13 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
         version_set_at(project_root, &initial_version.to_string(false))?;
     }
 
+    // 5. Git auto-ignore (already handled in yml_read_from via update_ignores)
+
+    // 6. Git Pre-Snapshot
+    if config.git.commit {
+        git_commit_all("Snapshot pre-build", Some(project_root))?;
+    }
+
     let quarto_exists = project_root.join("_quarto.yml").exists();
     let bookdown_exists = project_root.join("_bookdown.yml").exists();
 
@@ -84,14 +133,17 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     if yml_path.exists() {
         let content = fs::read_to_string(&yml_path).map_err(|e| e.to_string())?;
         if let Ok(config) = serde_yaml::from_str::<ProjConfig>(&content) {
-            if let Some(build) = config.build {
-                build_scripts = build.scripts;
-                if profile.is_none() {
-                    profile = build.profile;
-                }
+            let build = config.build;
+            build_scripts = build.scripts;
+            if profile.is_none() {
+                profile = build.profile;
             }
         }
     }
+
+    // ==========================================
+    // STEP C: Core Document Compilation
+    // ==========================================
 
     // Isolate execution logic inside catch_unwind
     let pr = project_root.to_path_buf();
@@ -100,7 +152,25 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     }));
 
     match result {
-        Ok(Ok(())) => Ok(()),
+        Ok(Ok(())) => {
+            // ==========================================
+            // STEP D: Post-Build Operations
+            // ==========================================
+            if config.git.commit {
+                let ver_str = initial_version.to_string(false);
+                let final_message = match description {
+                    Some(desc) if !desc.trim().is_empty() => format!("Build v{}: {}", ver_str, desc.trim()),
+                    _ => format!("Build v{}", ver_str),
+                };
+
+                git_commit_all(&final_message, Some(project_root))?;
+
+                if config.git.push {
+                    git_push(Some(project_root))?;
+                }
+            }
+            Ok(())
+        },
         Ok(Err(e)) => {
             if is_prod_run {
                 // Revert to Development State of Previous Baseline
