@@ -4,12 +4,40 @@ use std::path::PathBuf;
 use std::fs;
 use crate::ignore::{root, update_ignores};
 
+/// Represents the complete structure of a `_proj.yml` configuration file.
+///
+/// Contains dynamically user-defined directory labels mapping to specific system paths.
+/// These paths adhere to required prefixes like `raw`, `output`, `cache`, or `docs`.
+///
+/// # Errors
+///
+/// Deserialization will fail if the provided YAML is structurally invalid or map
+/// types are mismatched.
+///
+/// ```rust
+/// use proj::yml::ProjConfig;
+/// let config = ProjConfig::default();
+/// assert!(config.directories.is_empty());
+/// ```
 #[derive(Deserialize, Debug, Default, Clone)]
 pub struct ProjConfig {
     #[serde(default)]
     pub directories: HashMap<String, DirConfig>,
 }
 
+/// Represents the configuration for a single directory entry within `_proj.yml`.
+///
+/// Each custom label specifies an optional specific physical path and a set of
+/// ignore rules to be synced automatically with `.gitignore` and `.Rbuildignore`.
+///
+/// # Errors
+///
+/// Fails to parse if the `path` key holds a non-string format.
+///
+/// ```rust
+/// use proj::yml::{DirConfig, IgnoreConfig};
+/// let dir = DirConfig { path: None, ignore: IgnoreConfig::Single("all".to_string()) };
+/// ```
 #[derive(Deserialize, Debug, Clone)]
 pub struct DirConfig {
     pub path: Option<PathBuf>,
@@ -17,6 +45,20 @@ pub struct DirConfig {
     pub ignore: IgnoreConfig,
 }
 
+/// Defines auto-generated ignore rules applied to tracked directories.
+///
+/// Can either be a single string rule or a list of multiple target platforms
+/// (e.g. `["git", "rbuild"]`).
+///
+/// # Errors
+///
+/// Standard fallback occurs dynamically if untagged keys don't match list or string.
+///
+/// ```rust
+/// use proj::yml::IgnoreConfig;
+/// let config1 = IgnoreConfig::Single("all".to_string());
+/// let config2 = IgnoreConfig::Multiple(vec!["git".to_string(), "rbuild".to_string()]);
+/// ```
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(untagged)]
 pub enum IgnoreConfig {
@@ -28,16 +70,55 @@ fn default_ignore() -> IgnoreConfig {
     IgnoreConfig::Single("all".to_string())
 }
 
+/// The fully resolved and validated project configuration.
+///
+/// Once parsed and checked, this structure guarantees that all referenced directories
+/// conform to naming rules, and default unreferenced base targets are injected.
+///
+/// # Panics
+///
+/// None expected as this acts purely as an internal verified state container.
+///
+/// ```rust
+/// use std::collections::HashMap;
+/// use proj::yml::ValidatedConfig;
+/// let config = ValidatedConfig { directories: HashMap::new() };
+/// ```
 pub struct ValidatedConfig {
     pub directories: HashMap<String, ResolvedDir>,
 }
 
+/// Represents a validated directory with an absolute or properly referenced system path.
+///
+/// Holds the final calculated path alongside its resolved `IgnoreConfig` rule set.
+///
+/// ```rust
+/// use std::path::PathBuf;
+/// use proj::yml::{ResolvedDir, IgnoreConfig};
+/// let resolved = ResolvedDir { path: PathBuf::from("_raw"), ignore: IgnoreConfig::Single("all".to_string()) };
+/// ```
 pub struct ResolvedDir {
     pub path: PathBuf,
     pub ignore: IgnoreConfig,
 }
 
 impl ProjConfig {
+    /// Validates the raw parsed YAML layout and injects missing base default targets.
+    ///
+    /// It iterates through all specified configuration blocks to ensure custom label names
+    /// start with approved identifiers (`cache`, `raw`, `output`, `docs`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a validation error `String` if a defined directory label uses an
+    /// unsupported prefix layout.
+    ///
+    /// ```rust
+    /// use proj::yml::ProjConfig;
+    /// let config = ProjConfig::default();
+    /// let validated = config.validate_and_resolve().unwrap();
+    /// assert!(validated.directories.contains_key("raw"));
+    /// ```
     pub fn validate_and_resolve(&self) -> Result<ValidatedConfig, String> {
         let mut resolved = HashMap::new();
 
@@ -100,6 +181,30 @@ impl ProjConfig {
 }
 
 impl ValidatedConfig {
+    /// Resolves an exact or dynamically prefixed directory label against the physical file system.
+    ///
+    /// Takes the base project root and constructs absolute paths based on mapped configuration definitions.
+    /// If an exact match is missing, it intelligently applies suffix nesting rules based on prefix mappings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the requested label completely fails prefix structural checks.
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use std::collections::HashMap;
+    /// use proj::yml::{ValidatedConfig, ResolvedDir, IgnoreConfig};
+    ///
+    /// let mut dirs = HashMap::new();
+    /// dirs.insert("raw".to_string(), ResolvedDir {
+    ///     path: PathBuf::from("_raw"),
+    ///     ignore: IgnoreConfig::Single("all".to_string())
+    /// });
+    ///
+    /// let config = ValidatedConfig { directories: dirs };
+    /// let path = config.get_path(&PathBuf::from("/mock/root"), "raw-data").unwrap();
+    /// assert_eq!(path, PathBuf::from("/mock/root/_raw/data"));
+    /// ```
     pub fn get_path(&self, project_root: &std::path::Path, label: &str) -> Result<PathBuf, String> {
         // Rule A: Check for an exact matching key in the map
         if let Some(dir) = self.directories.get(label) {
@@ -154,6 +259,35 @@ fn make_absolute(root: &std::path::Path, path: &std::path::Path) -> PathBuf {
     }
 }
 
+/// Reads, validates, and initializes the local `_proj.yml` configuration mapping.
+///
+/// This performs an upward search for the root context, parses any existing `_proj.yml`,
+/// and runs the automated `update_ignores` routine to manage source tracking boundaries.
+///
+/// # Errors
+///
+/// Returns an error if the underlying filesystem context lacks a valid structural root
+/// or if YAML formatting constraints are severely violated.
+///
+/// ```rust
+/// use std::fs;
+/// use tempfile::TempDir;
+/// use std::env;
+/// use proj::yml::yml_read;
+///
+/// let temp = TempDir::new().unwrap();
+/// let root_path = temp.path();
+/// fs::write(root_path.join("VERSION"), "Version: v1.0.0").unwrap();
+/// fs::write(root_path.join("_proj.yml"), "directories:\n  raw:\n    ignore: all\n").unwrap();
+///
+/// let original_dir = env::current_dir().unwrap();
+/// env::set_current_dir(&root_path).unwrap();
+///
+/// let config = yml_read().unwrap();
+/// assert!(config.directories.contains_key("raw"));
+///
+/// env::set_current_dir(original_dir).unwrap();
+/// ```
 pub fn yml_read() -> Result<ValidatedConfig, String> {
     let project_root = root().ok_or("Could not find project root")?;
     let yml_path = project_root.join("_proj.yml");
@@ -173,6 +307,19 @@ pub fn yml_read() -> Result<ValidatedConfig, String> {
     Ok(validated)
 }
 
+/// Mock integration hook for legacy compatibility workflows.
+///
+/// Returns a static string. Originally intended to retrieve raw configuration text
+/// in preceding legacy builds.
+///
+/// # Panics
+///
+/// Does not panic.
+///
+/// ```rust
+/// use proj::yml::yml_get;
+/// assert_eq!(yml_get(), "projr yml content");
+/// ```
 pub fn yml_get() -> String {
     "projr yml content".to_string() // Left for backwards compatibility, though to be replaced/removed as per plan.
 }

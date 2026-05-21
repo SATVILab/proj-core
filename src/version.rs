@@ -3,6 +3,22 @@ use regex::Regex;
 use std::fs;
 use crate::ignore::root;
 
+/// Represents the project version separated into standard semantic components.
+///
+/// This structure holds the `major`, `minor`, `patch`, and an optional `dev` field.
+/// The `dev` field accommodates build cycles or pre-release versioning natively supported
+/// by certain runtime dependencies.
+///
+/// # Errors
+///
+/// Serialization and deserialization operations might fail if the input JSON
+/// doesn't contain valid numbers for the corresponding fields.
+///
+/// ```rust
+/// use proj::version::ProjVersion;
+/// let version = ProjVersion { major: 1, minor: 2, patch: 3, dev: 0 };
+/// assert_eq!(version.major, 1);
+/// ```
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ProjVersion {
     pub major: u32,
@@ -13,6 +29,21 @@ pub struct ProjVersion {
 }
 
 impl ProjVersion {
+    /// Formats the version as a standard string identifier.
+    ///
+    /// It can optionally prefix the string with a "v" character. The `dev` component
+    /// is included only if it is strictly greater than 0.
+    ///
+    /// # Errors
+    ///
+    /// This method is infallible and should not produce an error under normal memory conditions.
+    ///
+    /// ```rust
+    /// use proj::version::ProjVersion;
+    /// let version = ProjVersion { major: 1, minor: 2, patch: 3, dev: 4 };
+    /// assert_eq!(version.to_string(true), "v1.2.3.4");
+    /// assert_eq!(version.to_string(false), "1.2.3.4");
+    /// ```
     pub fn to_string(&self, include_v: bool) -> String {
         let prefix = if include_v { "v" } else { "" };
         if self.dev > 0 {
@@ -22,6 +53,22 @@ impl ProjVersion {
         }
     }
 
+    /// Parses a raw string into a structured `ProjVersion`.
+    ///
+    /// This handles multiple variations of string formatting, including JSON formatted
+    /// structures and various text formats like "v1.2.3.4", "v1.2.3-4", and "1.2.3".
+    ///
+    /// # Errors
+    ///
+    /// If the input string cannot be recognized as a valid JSON object or a regex
+    /// formatted string, it returns `None`.
+    ///
+    /// ```rust
+    /// use proj::version::ProjVersion;
+    /// let version = ProjVersion::parse("v1.2.3.4").unwrap();
+    /// assert_eq!(version.major, 1);
+    /// assert_eq!(version.dev, 4);
+    /// ```
     pub fn parse(s: &str) -> Option<Self> {
         // Try JSON first
         if s.trim().starts_with('{') {
@@ -48,6 +95,36 @@ impl ProjVersion {
     }
 }
 
+/// Retrieves the current project version from the `VERSION` file.
+///
+/// Scans upward from the current working directory to locate the project root containing
+/// the `VERSION` file. If found, it reads the content and parses it into a `ProjVersion`.
+///
+/// # Errors
+///
+/// Returns `None` if the project root cannot be detected, the `VERSION` file is unreadable,
+/// or the file content cannot be parsed successfully.
+///
+/// ```rust
+/// use std::fs;
+/// use tempfile::TempDir;
+/// use proj::version::{ProjVersion, version_get};
+///
+/// let temp = TempDir::new().unwrap();
+/// let version_path = temp.path().join("VERSION");
+/// fs::write(&version_path, "Version: v1.0.0").unwrap();
+///
+/// use std::env;
+/// let original_dir = env::current_dir().unwrap();
+/// env::set_current_dir(temp.path()).unwrap();
+///
+/// let version = version_get().unwrap();
+/// assert_eq!(version.major, 1);
+/// assert_eq!(version.minor, 0);
+/// assert_eq!(version.patch, 0);
+///
+/// env::set_current_dir(original_dir).unwrap();
+/// ```
 pub fn version_get() -> Option<ProjVersion> {
     let root = root()?;
     let version_file_path = root.join("VERSION");
@@ -55,6 +132,35 @@ pub fn version_get() -> Option<ProjVersion> {
     ProjVersion::parse(&content)
 }
 
+/// Updates the current project version globally.
+///
+/// Writes the new version into the `VERSION` file situated at the resolved project root.
+/// The input format can be structured JSON or a standard literal version string.
+///
+/// # Errors
+///
+/// Returns a `String` containing the error context if the root is not found,
+/// the input format is invalid, or the `VERSION` file cannot be written to.
+///
+/// ```rust
+/// use std::fs;
+/// use tempfile::TempDir;
+/// use proj::version::{ProjVersion, version_set};
+///
+/// let temp = TempDir::new().unwrap();
+/// let version_path = temp.path().join("VERSION");
+/// fs::write(&version_path, "Version: v1.0.0").unwrap();
+///
+/// use std::env;
+/// let original_dir = env::current_dir().unwrap();
+/// env::set_current_dir(temp.path()).unwrap();
+///
+/// version_set("v1.2.0").unwrap();
+/// let new_version = fs::read_to_string(&version_path).unwrap();
+/// assert_eq!(new_version, "Version: v1.2.0");
+///
+/// env::set_current_dir(original_dir).unwrap();
+/// ```
 pub fn version_set(version_str: &str) -> Result<(), String> {
     let root = root().ok_or("Could not find project root containing VERSION file")?;
     let version = ProjVersion::parse(version_str)

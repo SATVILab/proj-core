@@ -3,6 +3,37 @@ use std::path::PathBuf;
 use std::fs;
 use crate::yml::{ValidatedConfig, IgnoreConfig};
 
+/// Synchronizes ignore rules dynamically across `.gitignore` and `.Rbuildignore`.
+///
+/// Modifies the ignore files in place within the demarcated regions defined by
+/// `PROJ MANAGED` markers. It resolves the specific rules outlined in the `ValidatedConfig`.
+///
+/// # Errors
+///
+/// Returns an error if an ignore file cannot be created, written to, or if
+/// the target physical directory doesn't have required permission layers.
+///
+/// ```rust
+/// use std::path::PathBuf;
+/// use std::collections::HashMap;
+/// use tempfile::TempDir;
+/// use proj::yml::{ValidatedConfig, ResolvedDir, IgnoreConfig};
+/// use proj::ignore::update_ignores;
+///
+/// let temp = TempDir::new().unwrap();
+/// let root = temp.path().to_path_buf();
+///
+/// let mut dirs = HashMap::new();
+/// dirs.insert("raw".to_string(), ResolvedDir {
+///     path: root.join("_raw"),
+///     ignore: IgnoreConfig::Single("all".to_string())
+/// });
+///
+/// let validated = ValidatedConfig { directories: dirs };
+/// update_ignores(&root, &validated).unwrap();
+///
+/// assert!(root.join(".gitignore").exists());
+/// ```
 pub fn update_ignores(project_root: &std::path::Path, validated: &ValidatedConfig) -> Result<(), String> {
     let mut git_ignores = Vec::new();
     let mut rbuild_ignores = Vec::new();
@@ -129,11 +160,34 @@ fn update_ignore_file(path: &std::path::Path, ignores: &[String]) -> Result<(), 
     fs::write(path, final_content).map_err(|e| e.to_string())
 }
 
-/// Finds the project root by searching upwards for a "VERSION" file.
-/// When it's found, if there isn't a _proj.yml or .git file/directory in the same directory,
-/// then it moves up until it finds one, possibly up to five levels up.
-/// If it finds a directory that has a VERSION file and a .git or _proj.yml file,
-/// then it takes that one, otherwise it takes the original one.
+/// Discovers the conceptual project root directory via heuristic path traversal.
+///
+/// Searches upwards from the current working directory for a `VERSION` file.
+/// When found, it verifies if a `_proj.yml` or `.git` directory exists alongside it.
+/// If not, it continues ascending up to five directory levels to find a comprehensive root.
+/// If no secondary markers are found within that limit, it falls back to the original directory containing the `VERSION` file.
+///
+/// # Panics
+///
+/// Should not panic as file traversal heavily checks boundary existence natively.
+///
+/// ```rust
+/// use std::fs;
+/// use tempfile::TempDir;
+/// use proj::ignore::root;
+///
+/// let temp = TempDir::new().unwrap();
+/// fs::write(temp.path().join("VERSION"), "Version: v1.0.0").unwrap();
+///
+/// use std::env;
+/// let original_dir = env::current_dir().unwrap();
+/// env::set_current_dir(temp.path()).unwrap();
+///
+/// let result = root().unwrap();
+/// assert_eq!(result, temp.path());
+///
+/// env::set_current_dir(original_dir).unwrap();
+/// ```
 pub fn root() -> Option<PathBuf> {
     let current_dir = env::current_dir().ok()?;
     let mut current_path = current_dir.as_path();

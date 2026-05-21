@@ -1,12 +1,42 @@
 use clap::{Parser, Subcommand};
 
+/// Cross-platform CLI for version-linked project builds.
+///
+/// This application manages environment variables, validates configuration files (`_proj.yml`),
+/// and maintains project versioning across Rust, Python, and R environments.
+///
+/// # Panics
+///
+/// Commands might panic if standard streams (`stdout`/`stderr`) fail or if
+/// configuration parsing encounters entirely corrupted filesystem states.
+///
+/// ```rust,ignore
+/// use clap::Parser;
+/// use proj::{Cli, Commands, VersionCommands};
+/// let args = vec!["proj", "version", "get"];
+/// let cli = Cli::parse_from(args);
+/// ```
 #[derive(Parser)]
-#[command(name = "proj", version, about = "Cross-platform CLI for version-linked project builds")]
+#[command(name = "proj", version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
 }
 
+/// The top-level commands available in the `proj` CLI.
+///
+/// This enum routes execution to specific domain logic such as YAML validation,
+/// version string manipulation, or path resolution.
+///
+/// # Errors
+///
+/// Dispatching subcommands might fail if underlying methods return an `Err`
+/// (e.g. unreadable configuration file).
+///
+/// ```rust,ignore
+/// use proj::{Commands, YmlCommands};
+/// let cmd = Commands::Yml { command: YmlCommands::Read };
+/// ```
 #[derive(Subcommand)]
 enum Commands {
     /// YML related operations
@@ -26,12 +56,39 @@ enum Commands {
     },
 }
 
+/// Operations specific to the `_proj.yml` configuration file.
+///
+/// Allows interacting with the YAML definition of the project, including
+/// deep validation and parsing of directory labels.
+///
+/// # Errors
+///
+/// May fail if the YAML file contains structurally invalid labels or
+/// malformed content.
+///
+/// ```rust,ignore
+/// use proj::YmlCommands;
+/// let cmd = YmlCommands::Read;
+/// ```
 #[derive(Subcommand)]
 enum YmlCommands {
-    /// Read the projr yml content and trigger validation
+    /// Read the _proj.yml content and trigger validation.
     Read,
 }
 
+/// Path resolution commands.
+///
+/// Maps logical directory labels to concrete absolute paths within the current project.
+///
+/// # Errors
+///
+/// Might return an error if the project root cannot be found or the specified
+/// label does not follow the required prefixed naming convention.
+///
+/// ```rust,ignore
+/// use proj::PathCommands;
+/// let cmd = PathCommands::Get { label: "cache-data".to_string() };
+/// ```
 #[derive(Subcommand)]
 enum PathCommands {
     /// Get the resolved path for a given label
@@ -42,6 +99,19 @@ enum PathCommands {
     },
 }
 
+/// Commands for reading and updating the project version.
+///
+/// This manages the `VERSION` file, ensuring consistent formatting.
+///
+/// # Errors
+///
+/// Can fail if the file is missing, permissions are denied, or an invalid
+/// version format is supplied during a `set` operation.
+///
+/// ```rust,ignore
+/// use proj::VersionCommands;
+/// let cmd = VersionCommands::Get { no_v: false, format: "text".to_string() };
+/// ```
 #[derive(Subcommand)]
 enum VersionCommands {
     /// Get the project version
