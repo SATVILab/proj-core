@@ -18,7 +18,7 @@ fn test_missing_version_fallback_to_description() {
     // Create DESCRIPTION file with Version
     fs::write(root.join("DESCRIPTION"), "Package: mypkg\nVersion: 1.2.3.4\n").unwrap();
     // Dummy config
-    fs::write(root.join("_proj.yml"), "directories: {}").unwrap();
+    fs::write(root.join("_proj.yml"), "directories: {}\nbuild:\n  restrictions:\n    not_behind: false\n").unwrap();
 
     // Ensure git init exists to prevent git add -A failing
     use std::process::Command;
@@ -48,16 +48,17 @@ fn test_missing_version_fallback_to_default() {
     let root = temp.path();
 
     // No VERSION, no DESCRIPTION
-    fs::write(root.join("_proj.yml"), "directories: {}").unwrap();
+    fs::write(root.join("_proj.yml"), "directories: {}\nbuild:\n  restrictions:\n    not_behind: false\n").unwrap();
     use std::process::Command;
     Command::new("git").arg("init").current_dir(root).output().unwrap();
     // Configure mock git user for CI environments
     Command::new("git").args(["config", "user.name", "Test User"]).current_dir(root).output().unwrap();
     Command::new("git").args(["config", "user.email", "test@example.com"]).current_dir(root).output().unwrap();
 
-    let _ = build_project(root, BuildMode::ProdPatch, None, None);
+    let res = build_project(root, BuildMode::ProdPatch, None, None);
 
     // Should fallback to 0.0.1 and then bump to 0.0.2 for ProdPatch
     let version_content = fs::read_to_string(root.join("VERSION")).unwrap_or_default();
+    println!("Got res: {:?}", res);
     assert!(version_content.contains("v0.0.2") || version_content.contains("v0.0.1"), "Got content: {}", version_content);
 }

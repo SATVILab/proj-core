@@ -61,7 +61,113 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
         check_git_profile(Some(project_root))?;
     }
 
-    // 3. VERSION Initialization Check
+    // 3. Resolve configs and hooks
+    let quarto_exists = project_root.join("_quarto.yml").exists();
+    let bookdown_exists = project_root.join("_bookdown.yml").exists();
+
+    let yml_path = project_root.join("_proj.yml");
+    let mut build_scripts: Option<Vec<String>> = None;
+    let mut profile: Option<String> = cli_profile.map(|s| s.to_string());
+    let mut hooks_config: crate::yml::HooksConfig = crate::yml::HooksConfig::default();
+
+    if yml_path.exists() {
+        let content = fs::read_to_string(&yml_path).map_err(|e| e.to_string())?;
+        if let Ok(proj_conf) = serde_yaml::from_str::<ProjConfig>(&content) {
+            let build = proj_conf.build;
+            let dev = proj_conf.dev;
+
+            if is_dev {
+                if let Some(dev_scripts) = dev.scripts {
+                    if dev_scripts.is_empty() {
+                        return Err("dev.scripts cannot be empty when running in dev mode. The purpose of dev mode is to run scripts.".to_string());
+                    }
+                    build_scripts = Some(dev_scripts);
+                } else {
+                    build_scripts = build.scripts;
+                }
+
+                if dev.hooks.is_some() {
+                    hooks_config = dev.hooks.unwrap();
+                } else {
+                    hooks_config = build.hooks;
+                }
+            } else {
+                build_scripts = build.scripts;
+                hooks_config = build.hooks;
+            }
+
+            if profile.is_none() {
+                profile = build.profile;
+            }
+        }
+    }
+
+    // Extract hooks paths
+    let mut raw_hooks = Vec::new();
+    if let Some(pre_hooks) = &hooks_config.pre { raw_hooks.extend(pre_hooks.iter().cloned()); }
+    if let Some(post_hooks) = &hooks_config.post { raw_hooks.extend(post_hooks.iter().cloned()); }
+    if let Some(both_hooks) = &hooks_config.both { raw_hooks.extend(both_hooks.iter().cloned()); }
+
+    // Pre-flight Environment Verification
+    let mut resolved_files = Vec::new();
+    if let Some(scripts) = &build_scripts {
+        resolved_files = resolve_explicit_scripts(project_root, scripts)?;
+    } else {
+        if !quarto_exists && !bookdown_exists {
+            resolved_files = resolve_fallback_scripts(project_root)?;
+        }
+    }
+
+    // Upfront check for hooks
+    let resolved_hooks = resolve_explicit_scripts(project_root, &raw_hooks)?;
+
+    for expected_hook in raw_hooks.iter() {
+        if expected_hook.starts_with('!') { continue; } // Exclusions not validated directly here
+        let mut found = false;
+        // Simple validation: Ensure explicitly asked scripts/hooks map to at least one file.
+        // It's covered by `resolve_explicit_scripts` failing on glob error, but we want to fail fast if explicitly missing.
+        for h in &resolved_hooks {
+            if h.to_string_lossy().contains(&expected_hook.replace('/', std::path::MAIN_SEPARATOR_STR)) {
+                found = true;
+                break;
+            }
+        }
+        let target_pattern = project_root.join(expected_hook);
+        if !found && !target_pattern.exists() && !target_pattern.parent().map(|p| p.exists()).unwrap_or(true) {
+            // Best effort check for explicitly missed files
+        }
+    }
+
+    // Fail fast if explicit targets are missing entirely (hooks or scripts without globs)
+    let check_explicit_missing = |items: &[String]| -> Result<(), String> {
+        for item in items {
+            if item.starts_with('!') || item.contains('*') || item.contains('?') { continue; }
+            let p = project_root.join(item);
+            if !p.exists() {
+                return Err(format!("Error: Explicitly defined script or hook file '{}' does not exist.", item));
+            }
+        }
+        Ok(())
+    };
+
+    if let Some(scripts) = &build_scripts {
+        check_explicit_missing(scripts)?;
+    }
+    check_explicit_missing(&raw_hooks)?;
+
+    let mut validation_files = resolved_files.clone();
+    validation_files.extend(resolved_hooks.clone());
+
+    let resolved_python_cmd = run_pre_flight_checks(
+        project_root,
+        &config,
+        is_prod_run,
+        &validation_files,
+        quarto_exists,
+        bookdown_exists,
+    )?;
+
+    // 4. VERSION Initialization Check
     let mut initial_version = match version_get_from(project_root) {
         Some(v) => v,
         None => {
@@ -89,7 +195,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
 
     let version_before_build = initial_version.clone();
 
-    // 4. Version Bump
+    // 5. Version Bump
     if is_dev {
         if initial_version.dev == 0 {
             initial_version.dev = 1;
@@ -117,57 +223,21 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
         version_set_at(project_root, &initial_version.to_string(false))?;
     }
 
-    // 5. Git auto-ignore (already handled in yml_read_from via update_ignores)
+    // 6. Git auto-ignore (already handled in yml_read_from via update_ignores)
 
-    let quarto_exists = project_root.join("_quarto.yml").exists();
-    let bookdown_exists = project_root.join("_bookdown.yml").exists();
-
-    let yml_path = project_root.join("_proj.yml");
-    let mut build_scripts: Option<Vec<String>> = None;
-    let mut profile: Option<String> = cli_profile.map(|s| s.to_string());
-
-    if yml_path.exists() {
-        let content = fs::read_to_string(&yml_path).map_err(|e| e.to_string())?;
-        if let Ok(config) = serde_yaml::from_str::<ProjConfig>(&content) {
-            let build = config.build;
-            let dev = config.dev;
-
-            if is_dev {
-                if let Some(dev_scripts) = dev.scripts {
-                    if dev_scripts.is_empty() {
-                        return Err("dev.scripts cannot be empty when running in dev mode. The purpose of dev mode is to run scripts.".to_string());
-                    }
-                    build_scripts = Some(dev_scripts);
-                } else {
-                    build_scripts = build.scripts;
-                }
-            } else {
-                build_scripts = build.scripts;
-            }
-
-            if profile.is_none() {
-                profile = build.profile;
-            }
+    // Execute Pre-Build Hooks
+    if let Some(pre_hooks) = &hooks_config.pre {
+        let pre_resolved = resolve_explicit_scripts(project_root, pre_hooks)?;
+        for hook in pre_resolved {
+            execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
         }
     }
-
-    // Pre-flight Environment Verification
-    let mut resolved_files = Vec::new();
-    if let Some(scripts) = &build_scripts {
-        resolved_files = resolve_explicit_scripts(project_root, scripts)?;
-    } else {
-        if !quarto_exists && !bookdown_exists {
-            resolved_files = resolve_fallback_scripts(project_root)?;
+    if let Some(both_hooks) = &hooks_config.both {
+        let both_resolved = resolve_explicit_scripts(project_root, both_hooks)?;
+        for hook in both_resolved {
+            execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
         }
     }
-    let resolved_python_cmd = run_pre_flight_checks(
-        project_root,
-        &config,
-        is_prod_run,
-        &resolved_files,
-        quarto_exists,
-        bookdown_exists,
-    )?;
 
     // 6. Git Pre-Snapshot
     if config.git.commit {
@@ -180,8 +250,9 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
 
     // Isolate execution logic inside catch_unwind
     let pr = project_root.to_path_buf();
+    let profile_clone = profile.clone();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        execute_build_pipeline(&pr, build_scripts, profile, quarto_exists, bookdown_exists, resolved_python_cmd.as_deref())
+        execute_build_pipeline(&pr, build_scripts, profile_clone, quarto_exists, bookdown_exists, resolved_python_cmd.as_deref())
     }));
 
     match result {
@@ -197,7 +268,23 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
                 };
 
                 git_commit_all(&final_message, Some(project_root))?;
+            }
 
+            // Execute Post-Build Hooks (after post-build commit, before push)
+            if let Some(post_hooks) = &hooks_config.post {
+                let post_resolved = resolve_explicit_scripts(project_root, post_hooks)?;
+                for hook in post_resolved {
+                    execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
+                }
+            }
+            if let Some(both_hooks) = &hooks_config.both {
+                let both_resolved = resolve_explicit_scripts(project_root, both_hooks)?;
+                for hook in both_resolved {
+                    execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
+                }
+            }
+
+            if config.git.commit {
                 if config.git.push {
                     git_push(Some(project_root))?;
                 }
