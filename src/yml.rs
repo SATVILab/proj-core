@@ -22,11 +22,39 @@ use crate::ignore::{root, update_ignores};
 #[derive(Deserialize, Debug, Default, Clone)]
 pub struct ProjConfig {
     #[serde(default)]
+    pub config: GlobalConfig,
+    #[serde(default)]
     pub directories: HashMap<String, DirConfig>,
     #[serde(default)]
     pub build: BuildConfig,
     #[serde(default)]
     pub dev: DevConfig,
+}
+
+/// Represents the top-level configuration key `config` in `_proj.yml`.
+#[derive(Deserialize, Debug, Default, Clone)]
+pub struct GlobalConfig {
+    #[serde(default)]
+    pub git: GeneralGitConfig,
+}
+
+/// Represents general git settings inside `config.git`.
+#[derive(Deserialize, Debug, Clone)]
+pub struct GeneralGitConfig {
+    #[serde(default = "default_use_proj_cred_helper")]
+    pub use_proj_cred_helper: bool,
+}
+
+impl Default for GeneralGitConfig {
+    fn default() -> Self {
+        Self {
+            use_proj_cred_helper: true,
+        }
+    }
+}
+
+fn default_use_proj_cred_helper() -> bool {
+    true
 }
 
 /// Represents the build configuration options within `_proj.yml`.
@@ -154,10 +182,11 @@ fn default_ignore() -> IgnoreConfig {
 ///
 /// ```rust
 /// use std::collections::HashMap;
-/// use proj::yml::{ValidatedConfig, ResolvedGitConfig, RestrictionsConfig};
-/// let config = ValidatedConfig { directories: HashMap::new(), git: ResolvedGitConfig { commit: false, push: false }, restrictions: RestrictionsConfig::default() };
+/// use proj::yml::{ValidatedConfig, ResolvedGitConfig, RestrictionsConfig, GlobalConfig};
+/// let config = ValidatedConfig { config: GlobalConfig::default(), directories: HashMap::new(), git: ResolvedGitConfig { commit: false, push: false }, restrictions: RestrictionsConfig::default() };
 /// ```
 pub struct ValidatedConfig {
+    pub config: GlobalConfig,
     pub directories: HashMap<String, ResolvedDir>,
     pub git: ResolvedGitConfig,
     pub restrictions: RestrictionsConfig,
@@ -283,6 +312,7 @@ impl ProjConfig {
         }
 
         Ok(ValidatedConfig {
+            config: self.config.clone(),
             directories: resolved,
             git: resolved_git,
             restrictions: self.build.restrictions.clone(),
@@ -311,7 +341,7 @@ impl ValidatedConfig {
     ///     ignore: IgnoreConfig::Single("all".to_string())
     /// });
     ///
-    /// let config = ValidatedConfig { directories: dirs, git: ResolvedGitConfig { commit: false, push: false }, restrictions: RestrictionsConfig::default() };
+    /// let config = ValidatedConfig { config: proj::yml::GlobalConfig::default(), directories: dirs, git: ResolvedGitConfig { commit: false, push: false }, restrictions: RestrictionsConfig::default() };
     /// let path = config.get_path(&PathBuf::from("/mock/root"), "raw-data").unwrap();
     /// assert_eq!(path, PathBuf::from("/mock/root/_raw/data"));
     /// ```
