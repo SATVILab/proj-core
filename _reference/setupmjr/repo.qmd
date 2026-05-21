@@ -1,0 +1,104 @@
+---
+title: "repo"
+toc: true
+---
+
+The `repo` subcommand is used to set up repositories.
+
+## Commands
+
+```
+  repo readme
+  repo devcontainer [--repo <owner>/<repo>@<branch>] [--build]
+  repo action <action-name>
+  repo install repos
+```
+
+## `repo readme`
+
+This command interacts with the user to scaffold a standardized `README.md` for a project repository.
+
+When executed, it prompts for the following information:
+- The project title.
+- A brief description of what the repository does.
+- The full names and email addresses of two primary contacts.
+
+It then generates a `README.md` using the provided inputs.
+
+::: {.callout-info collapse="true"}
+## Details
+
+The generated `README.md` follows a clean template containing sections for the title, purpose, contact details, links (e.g. data sources, publications), and further details (e.g. methods, timeline, team, data sources).
+
+For example, the output might look like:
+
+```markdown
+# My Project Title
+
+This repository handles data processing for the survey data.
+
+## Contact
+
+For more information, please contact:
+- Jane Doe:
+  - jane.doe@example.com
+- John Smith:
+  - john.smith@example.com
+
+## Links
+
+- [URLs to data sources (e.g. OneDrive), GitHub repositories, publications, etc.]
+
+## Details
+
+[Methods, timeline, team, data sources, software/tools, etc.]
+```
+:::
+
+## `repo devcontainer`
+
+This command copies a reference `.devcontainer` configuration into your current repository.
+
+```bash
+setupmjr repo devcontainer [--repo <owner>/<repo>@<branch>] [--build]
+```
+
+- `--repo`: Specifies the source repository and branch to copy the `.devcontainer` directory from (defaults to `MiguelRodo/comp@main`).
+- `--build`: If provided, the command will also download the relevant GitHub Action to automatically prebuild the devcontainer, fetching good default settings from the reference actions.
+
+::: {.callout-info collapse="true"}
+## Details
+
+Under the hood, the command fetches the `.devcontainer` directory by downloading the tarball of the specified branch from GitHub. If the `--build` flag is passed, it pulls the `prebuild-devcontainer.yml` workflow from `MiguelRodo/actions` and places it in `.github/workflows/`.
+:::
+
+## `repo install repos`
+
+While `setupmjr` has a few subcommands like `repo`, the `repos` command is actually a dependency of `setupmjr`. The `setupmjr repo install repos` command downloads and installs this external `repos` utility into `~/.local/bin`.
+
+The core operations for managing repositories (cloning, configuring workspaces, etc.) are conceptually part of `repos`, which `setupmjr` uses or exposes (excluding tools like `run` or `install-r-deps`, which can be made directly available via `repos`).
+
+## `repo action`
+
+This command simplifies adding pre-configured GitHub Actions to your repository.
+
+```bash
+setupmjr repo action <action-name>
+```
+
+It downloads the specified action workflow from the [MiguelRodo/actions](https://github.com/MiguelRodo/actions) repository into your `.github/workflows/` directory.
+
+### Available Actions
+
+The following actions can be added:
+
+- **`prebuild-devcontainer`**: Builds and pushes a pre-built Dev Container image to GHCR whenever a SemVer tag is pushed. Read more [here](https://github.com/MiguelRodo/actions/tree/main/prebuild-devcontainer).
+- **`publish-quarto-site`**: Renders and publishes a Quarto site to the `gh-pages` branch whenever the main branch is updated. Read more [here](https://github.com/MiguelRodo/actions/tree/main/publish-quarto-site).
+- **`sync-issues-to-project`**: Syncs open issues from the repository to a GitHub Project (V2) board automatically. Read more [here](https://github.com/MiguelRodo/actions/tree/main/add-issues-to-project).
+- **`version-release`**: Bumps versions in Python or R packages, creates a versioned git tag, and publishes a GitHub Release. Read more [here](https://github.com/MiguelRodo/actions/tree/main/version-release).
+
+::: {.callout-info collapse="true"}
+## Details
+
+When running `repo action <action-name>`, the CLI fetches the corresponding YAML file from the `examples` directory of the `MiguelRodo/actions` repository, directly placing it in `.github/workflows/`.
+:::

@@ -1,0 +1,149 @@
+#!/usr/bin/env pwsh
+# install.ps1 - Install setupmjr CLI binary into a writable directory already in PATH
+
+param(
+    [switch]$Uninstall
+)
+
+$ErrorActionPreference = "Stop"
+$localAppData = if ($env:LOCALAPPDATA) {
+    $env:LOCALAPPDATA
+} elseif ($env:HOME) {
+    Join-Path $env:HOME ".local/share"
+} else {
+    [System.IO.Path]::GetTempPath()
+}
+$stateDir = Join-Path $localAppData "setupmjr"
+$stateFile = Join-Path $stateDir "install-dir.txt"
+
+function Get-ArchName {
+    $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+    switch ($arch.ToString()) {
+        "X64" { return "amd64" }
+        "Arm64" { return "arm64" }
+        default { throw "Unsupported architecture: $arch" }
+    }
+}
+
+function Test-WritableDirectory([string]$PathEntry) {
+    if (
+        [string]::IsNullOrWhiteSpace($PathEntry) -or
+        -not [System.IO.Path]::IsPathRooted($PathEntry) -or
+        -not (Test-Path -LiteralPath $PathEntry -PathType Container)
+    ) {
+        return $false
+    }
+    try {
+        $probe = Join-Path $PathEntry ".setupmjr-write-test-$([guid]::NewGuid().ToString()).tmp"
+        Set-Content -LiteralPath $probe -Value "ok" -Encoding ascii
+        Remove-Item -LiteralPath $probe -Force
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Get-WritablePathDirectory {
+    $pathEntries = $env:Path -split ';'
+    foreach ($entry in $pathEntries) {
+        if (Test-WritableDirectory $entry) {
+            return $entry
+        }
+    }
+    throw "No writable directory found in PATH."
+}
+
+if ($Uninstall) {
+    $removed = $false
+    $installDir = $null
+    if (Test-Path -LiteralPath $stateFile -PathType Leaf) {
+        $installDir = Get-Content -LiteralPath $stateFile -TotalCount 1
+    }
+    if ($installDir -and [System.IO.Path]::IsPathRooted($installDir)) {
+        $candidate = Join-Path $installDir "setupmjr.exe"
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            try {
+                Remove-Item -LiteralPath $candidate -Force
+                Write-Host "Removed $candidate" -ForegroundColor Green
+                $removed = $true
+            } catch {
+                Write-Warning "Could not remove ${candidate}: $($_.Exception.Message)"
+            }
+        }
+    }
+
+    if (-not $removed) {
+        Write-Host "No setupmjr.exe found at recorded install location." -ForegroundColor Yellow
+    }
+    if (Test-Path -LiteralPath $stateFile -PathType Leaf) {
+        Remove-Item -LiteralPath $stateFile -Force -ErrorAction SilentlyContinue
+    }
+    exit 0
+}
+
+$releaseRepo = if ($env:SETUPMJR_RELEASE_REPO) { $env:SETUPMJR_RELEASE_REPO } else { "MiguelRodo/setupmjr" }
+$binaryName = if ($env:SETUPMJR_BINARY_NAME) { $env:SETUPMJR_BINARY_NAME } else { "setupmjr" }
+$osName = "windows"
+$archName = Get-ArchName
+$installDir = Get-WritablePathDirectory
+$downloadBase = if ($env:SETUPMJR_DOWNLOAD_BASE_URL) {
+    $env:SETUPMJR_DOWNLOAD_BASE_URL
+} else {
+    "https://github.com/$releaseRepo/releases/latest/download"
+}
+$tmpFile = Join-Path ([System.IO.Path]::GetTempPath()) "$binaryName-$PID.exe"
+
+$assets = @(
+    "${binaryName}_${osName}_${archName}.exe",
+    "${binaryName}-${osName}-${archName}.exe"
+)
+
+function Invoke-DownloadAsset([string]$Url, [string]$OutFile) {
+    if ($Url -match '^file:///(.+)$') {
+        # Convert forward slashes to OS path separators and handle Windows drive
+        # letters (e.g. file:///C:/path → C:\path).
+        $localPath = $Matches[1] -replace '/', [System.IO.Path]::DirectorySeparatorChar
+        Copy-Item -LiteralPath $localPath -Destination $OutFile -Force
+        return
+    }
+    Invoke-WebRequest -Uri $Url -OutFile $OutFile
+}
+
+$downloadedAsset = $null
+foreach ($asset in $assets) {
+    $url = "$downloadBase/$asset"
+    Write-Host "Trying $url..."
+    try {
+        Invoke-DownloadAsset -Url $url -OutFile $tmpFile
+        $downloadedAsset = $asset
+        break
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+        $message = $_.Exception.Message
+        if ($statusCode -eq 404 -or $message -match '404') {
+            Write-Warning "Asset ${asset} not found at ${url}"
+            continue
+        }
+        throw "Download failed for ${url}: $message"
+    }
+}
+
+if (-not $downloadedAsset) {
+    throw "Could not download a release asset for $osName/$archName. Tried: $($assets -join ', ') from $downloadBase"
+}
+
+$target = Join-Path $installDir "$binaryName.exe"
+Move-Item -LiteralPath $tmpFile -Destination $target -Force
+New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
+Set-Content -LiteralPath $stateFile -Value $installDir -Encoding ascii
+Write-Host "Installed $binaryName ($downloadedAsset) to $target" -ForegroundColor Green
+
+Write-Host "Installing bundled dependencies..."
+if (!(Get-Command repos -ErrorAction SilentlyContinue)) {
+    & "$target" repo install repos
+}
+
+Write-Host "Run: $binaryName --help"

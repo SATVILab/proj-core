@@ -1,0 +1,105 @@
+version: 1
+project_name: setupmjr
+
+builds:
+  - id: setupmjr-linux
+    main: ./cmd/setupmjr
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+  - id: setupmjr-darwin
+    main: ./cmd/setupmjr
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+  - id: setupmjr-windows
+    main: ./cmd/setupmjr
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos:
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+nfpms:
+  - id: setupmjr
+    formats:
+    - deb
+    package_name: setupmjr
+    file_name_template: "{{ .PackageName }}_{{ .Version }}_{{ .Arch }}"
+    homepage: "https://github.com/MiguelRodo/setupmjr"
+    description: "Cross-platform setup utility"
+    license: "MIT"
+    maintainer: "Miguel Rodo"
+    bindir: /usr/bin
+    dependencies:
+      - bash
+      - repos
+    builds:
+      - setupmjr-linux
+
+scoops:
+  - repository:
+      owner: MiguelRodo
+      name: scoop-bucket
+      token: "{{ .Env.SCOOP_TAP_TOKEN }}"
+    depends:
+      - repos
+    commit_author:
+      name: github-actions[bot]
+      email: github-actions[bot]@users.noreply.github.com
+    homepage: "https://github.com/MiguelRodo/setupmjr"
+    description: "Cross-platform setup utility"
+    license: "MIT"
+
+brews:
+  - ids:
+      - tarballs
+    dependencies:
+      - name: MiguelRodo/homebrew-tap/repos
+    repository:
+      owner: MiguelRodo
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    commit_author:
+      name: github-actions[bot]
+      email: github-actions[bot]@users.noreply.github.com
+    homepage: "https://github.com/MiguelRodo/setupmjr"
+    description: "Cross-platform setup utility"
+    license: "MIT"
+
+archives:
+  - id: tarballs
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+  - id: binaries
+    format: binary
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+
+release:
+  footer: |
+    ## Install matrix
+
+    | OS | Architectures | Release archive |
+    | --- | --- | --- |
+    | Linux | amd64, arm64 | `setupmjr_{{ .Version }}_linux_<arch>.tar.gz` |
+    | macOS | amd64, arm64 | `setupmjr_{{ .Version }}_darwin_<arch>.tar.gz` |
+    | Windows | amd64, arm64 | `setupmjr_{{ .Version }}_windows_<arch>.zip` |
+
+    Also published for installer scripts:
+
+    - `setupmjr_linux_<arch>`
+    - `setupmjr_darwin_<arch>`
+    - `setupmjr_windows_<arch>.exe` (Windows)

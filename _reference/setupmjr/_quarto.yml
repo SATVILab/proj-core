@@ -1,0 +1,28 @@
+project:
+  type: website
+
+website:
+  title: "setupmjr"
+  navbar:
+    left:
+      - href: index.qmd
+        text: Home
+      - href: install.qmd
+        text: Installation
+      - href: hpc.qmd
+        text: hpc
+      - href: shell.qmd
+        text: shell
+      - href: r.qmd
+        text: r
+      - href: git.qmd
+        text: git
+      - href: repo.qmd
+        text: repo
+      - href: multirepo.qmd
+        text: multirepo
+
+format:
+  html:
+    theme: cosmo
+    toc: true

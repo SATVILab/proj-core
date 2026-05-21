@@ -1,0 +1,216 @@
+---
+title: "Installation"
+toc: true
+---
+
+`setupmjr` is distributed as a compiled Go CLI binary.
+Install it via system package managers, release installers, or from source.
+Optional R and Python wrappers dispatch to the installed `setupmjr` binary.
+
+## Release asset matrix
+
+GitHub Releases publish Go CLI binaries for:
+
+- Linux (`amd64`, `arm64`) as `.tar.gz`
+- macOS (`amd64`, `arm64`) as `.tar.gz`
+- Windows (`amd64`, `arm64`) as `.zip` (plus `.exe` bare binaries for installer scripts)
+- Stable direct-download bare binaries for installer scripts:
+  - `setupmjr_linux_<arch>`
+  - `setupmjr_darwin_<arch>`
+  - `setupmjr_windows_<arch>.exe`
+
+Python and R components are wrappers around the same CLI and are platform-neutral.
+Install the wrapper package (`pip`/`R`) and ensure `setupmjr` is installed on `PATH`.
+
+## Ubuntu / Debian
+
+### Option 1: Local Release Installer (No sudo required)
+
+Install the latest release binary into the first writable directory already
+present in your `PATH`:
+
+```bash
+git clone https://github.com/MiguelRodo/setupmjr.git
+cd setupmjr
+bash install-local.sh
+```
+
+The installer also automatically downloads the `repos` tool as a bundled dependency.
+If no writable path entry exists, the installer will stop with guidance.
+
+To uninstall:
+
+```bash
+bash uninstall-local.sh
+```
+
+### Option 2: Install from APT Repository (Recommended for automatic updates, but requires sudo)
+
+::::{.callout-warning}
+The APT repository is an upcoming feature and not yet fully configured.
+::::
+
+Install and keep `setupmjr` up to date directly via `apt`:
+
+```bash
+# Install prerequisites
+sudo apt-get install -y curl gpg
+
+# Add repository signing key
+curl -fsSL https://miguelrodo.github.io/apt-miguelrodo/KEY.gpg \
+   | sudo gpg --dearmor -o /usr/share/keyrings/apt-miguelrodo.gpg
+
+# Add apt source
+echo "deb [signed-by=/usr/share/keyrings/apt-miguelrodo.gpg] https://miguelrodo.github.io/apt-miguelrodo stable main" \
+   | sudo tee /etc/apt/sources.list.d/apt-miguelrodo.list >/dev/null
+
+# Install setupmjr
+sudo apt-get update
+sudo apt-get install -y setupmjr
+```
+
+To uninstall:
+
+```bash
+sudo apt-get remove setupmjr
+```
+
+### Option 3: System-wide from Release `.deb` (requires sudo)
+
+Prefer Option 1 (APT) for automatic updates.
+If needed, manually download and install a release `.deb` from the
+[Releases page](https://github.com/MiguelRodo/setupmjr/releases):
+
+```bash
+VERSION_SETUPMJR=1.2.6
+ARCH="$(dpkg --print-architecture)"
+wget "https://github.com/MiguelRodo/setupmjr/releases/download/v${VERSION_SETUPMJR}/setupmjr_${VERSION_SETUPMJR}_${ARCH}.deb"
+sudo dpkg -i "setupmjr_${VERSION_SETUPMJR}_${ARCH}.deb"
+rm "setupmjr_${VERSION_SETUPMJR}_${ARCH}.deb"
+
+# Fix any dependency issues
+sudo apt-get install -f
+```
+
+To uninstall:
+
+```bash
+sudo dpkg -r setupmjr
+```
+
+---
+
+## macOS (Homebrew)
+
+::::{.callout-warning}
+The Homebrew tap is an upcoming feature and not yet fully configured.
+::::
+
+```bash
+brew tap MiguelRodo/setupmjr
+brew install setupmjr
+```
+
+---
+
+## Windows
+
+### Option 1: Installer Script
+
+Download and install the pre-compiled `setupmjr.exe` into the first writable directory
+already present in your `PATH`:
+
+1. Clone the repository:
+   ```powershell
+   git clone https://github.com/MiguelRodo/setupmjr.git
+   cd setupmjr
+   ```
+2. Run the installer:
+   ```powershell
+   .\install.ps1
+   ```
+
+The installer downloads the latest `setupmjr.exe` binary from GitHub releases and places
+it in the first writable directory in your current `PATH`. It also automatically downloads the `repos` tool as a bundled dependency.
+
+**Requirements:** PowerShell and network access to GitHub releases.
+
+*(Note: Ensure you are executing this within a PowerShell console `pwsh` or `powershell.exe`, as native `cmd.exe` will not interpret the script correctly.)*
+
+To uninstall:
+
+```powershell
+.\install.ps1 -Uninstall
+```
+
+### Option 2: Scoop
+
+```powershell
+scoop bucket add setupmjr https://github.com/MiguelRodo/scoop-bucket
+scoop install setupmjr
+```
+
+---
+
+## From Source (Go)
+
+Requires the Go toolchain installed.
+
+Install directly from the remote module path:
+
+```bash
+go install github.com/MiguelRodo/setupmjr/cmd/setupmjr@latest
+```
+
+Or build from a local clone (Linux-specific example shown):
+
+```bash
+git clone [https://github.com/MiguelRodo/setupmjr.git](https://github.com/MiguelRodo/setupmjr.git)
+cd setupmjr
+go build -o setupmjr ./cmd/setupmjr
+# Install system-wide on Linux/macOS
+sudo mv setupmjr /usr/local/bin/
+```
+
+---
+
+## Language Wrappers
+
+::::{.callout-warning}
+The language wrappers are not created yet.
+::::
+
+### R Package
+
+```r
+install.packages("devtools")
+devtools::install_github("MiguelRodo/setupmjr")
+```
+
+Requires `setupmjr` on your system `PATH` for full wrapper
+coverage.
+
+### Python Package
+
+```bash
+pip install git+https://github.com/MiguelRodo/setupmjr.git
+```
+
+Or from a local clone:
+
+```bash
+git clone https://github.com/MiguelRodo/setupmjr.git
+cd setupmjr
+pip install .
+```
+
+Requires `setupmjr` on your system `PATH` for full wrapper
+coverage.
+
+---
+
+## Verify Installation
+
+```bash
+setupmjr --help
+```

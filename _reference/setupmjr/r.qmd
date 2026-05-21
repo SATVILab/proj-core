@@ -1,0 +1,56 @@
+---
+title: "r"
+toc: true
+---
+
+The `r` subcommand is used to set up R environments.
+
+## Commands
+
+```
+  r [--not-radian] [--not-lintr]
+```
+
+## Setup
+
+One may often use a non-standard `R` terminal named `radian` because it offers many enhancements over the standard `R` terminal.
+However, `radian` (in some experiences) breaks without a key configuration setting.
+
+To configure this setting, run the following command:
+
+```bash
+setupmjr r
+```
+
+In addition to configuring `radian`, this command also turns off object length and line linters for `lintr` (to prevent VS Code or other editors from bothering you because your variable names or lines are "too long").
+
+### Flags
+
+You can opt out of configuring `radian` or `lintr` by passing the respective flags:
+
+- `--not-radian`: Do not configure `~/.radian_profile`.
+- `--not-lintr`: Do not configure `~/.lintr`.
+
+For example, to only configure `radian` and not `lintr`:
+
+```bash
+setupmjr r --not-lintr
+```
+
+::: {.callout-info collapse="true"}
+## Details
+
+If not skipped via `--not-radian`, the `~/.radian_profile` file is created if it does not exist, and the following line is added to it:
+
+```r
+options(radian.auto_match = FALSE)
+```
+
+If not skipped via `--not-lintr`, the `~/.lintr` file is created if it does not exist, and the following lines are added to it:
+
+```bash
+linters: linters_with_defaults(
+    object_length_linter = NULL,
+    object_name_linter = NULL)
+```
+:::

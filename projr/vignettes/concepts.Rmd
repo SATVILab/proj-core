@@ -1,0 +1,369 @@
+---
+title: "Concepts"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Concepts}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+# Core concepts
+
+This article covers the key ideas behind projr: single-purpose directories,
+versioned builds, manifests, archiving, profiles, environment variables,
+and dependency management with renv.
+
+---
+
+## Single-purpose directories
+
+projr organises projects so that each directory has one job:
+
+```
+my-project/
+├── _raw_data/          # Source data (never modified)
+├── _output/            # Final outputs (figures, tables)
+├── _tmp/               # Temporary/cache files
+├── docs/               # Rendered documents (HTML, PDF)
+├── R/                  # Source code
+├── analysis.Rmd        # Analysis documents
+└── _projr.yml          # Configuration
+```
+
+This makes it straightforward to share specific parts of a project (e.g.
+just the data and outputs), restore it on a new machine, or understand the
+layout at a glance.
+
+### Directory labels
+
+Every directory gets a label that describes its role.
+The label prefix determines how projr treats the directory:
+
+- `raw-*` — source inputs (e.g. `raw-data`)
+- `cache-*` — temporary storage (e.g. `cache`)
+- `output-*` — final outputs (e.g. `output`)
+- `docs-*` — documentation (e.g. `docs`)
+
+You can define multiple directories under the same prefix:
+
+```yaml
+directories:
+  raw-data-public:
+    path: _raw_data_public
+  raw-data-sensitive:
+    path: _raw_data_sensitive
+  output-figures:
+    path: _output/figures
+  output-tables:
+    path: _output/tables
+```
+
+Labels must not end in `-empty` (reserved for internal use).
+
+### Safe vs unsafe directories
+
+When you request a directory path, the `safe` argument controls which
+location you get:
+
+- `safe = TRUE` — versioned cache path (e.g. `_tmp/projr/v0.0.1/output`).
+  Used during dev builds so final directories are not touched.
+- `safe = FALSE` — the actual directory (e.g. `_output`).
+  Used during final builds.
+
+```{r eval=FALSE}
+projr_path_get_dir("output")
+projr_path_get_dir("output", safe = TRUE)
+```
+
+---
+
+## Versioned builds
+
+Each build assigns a semantic version (`major.minor.patch`) to the project
+and records which inputs produced which outputs:
+
+```
+v0.1.0  Initial analysis
+v0.1.1  Fix typo in figure
+v0.2.0  Add sensitivity analysis
+v1.0.0  Final publication version
+```
+
+- Major (x): breaking changes or major milestones
+- Minor (y): new features or analyses
+- Patch (z): small fixes
+
+You can read or set the version directly:
+
+```{r eval=FALSE}
+projr_version_get()
+projr_version_set("0.2.0")
+```
+
+---
+
+## Development vs final builds
+
+### Development builds
+
+Use `projr_build_dev()` to iterate safely.
+Outputs go to cache (`_tmp/projr/v<version>/`), leaving `_output` and `docs`
+untouched. No version bump, no archiving.
+
+```{r eval=FALSE}
+projr_build_dev()
+```
+
+Use dev builds when testing code changes, debugging, or checking output
+before committing.
+
+### Final builds
+
+Final builds bump the version, populate `_output` and `docs`, create a
+manifest, optionally archive to remotes, and commit to Git:
+
+```{r eval=FALSE}
+projr_build_patch()   # increment patch (0.0.x)
+projr_build_minor()   # increment minor (0.x.0)
+projr_build_major()   # increment major (x.0.0)
+```
+
+`projr_build()` is an alias for `projr_build_patch()`.
+
+Use final builds when you are ready to share results, create a milestone,
+or archive for posterity.
+
+### Build phases
+
+Both build types follow the same phases:
+
+1. Clear output directories (mode depends on `PROJR_CLEAR_OUTPUT`)
+2. Run pre-build hooks
+3. Hash input files for the manifest
+4. Bump version (final builds only)
+5. Execute build scripts / render documents
+6. Hash output files, write manifest
+7. Commit to Git (if configured)
+8. Run post-build hooks
+9. Distribute to remote destinations (final builds only)
+10. Bump to dev version (final builds only, e.g. 0.0.2 → 0.0.2-1)
+
+---
+
+## Manifests
+
+A manifest is a CSV (`manifest.csv` at the project root) that records file
+hashes for every version. This links each output to the exact inputs that
+produced it.
+
+```csv
+label,fn,version,hash
+raw-data,data.csv,v0.1.0,abc123...
+output,figure.png,v0.1.0,def456...
+docs,report.html,v0.1.0,ghi789...
+```
+
+Query the manifest to see what changed:
+
+```{r eval=FALSE}
+# Changes between two versions
+projr_manifest_changes("0.0.1", "0.0.2")
+
+# Filter to a single label
+projr_manifest_changes("0.0.1", "0.0.2", label = "output")
+
+# File history across a range of versions
+projr_manifest_range("0.0.1")
+
+# Most recent change for each label
+projr_manifest_last_change()
+```
+
+---
+
+## Archiving and restoration
+
+projr can archive directory contents to GitHub Releases or local directories
+after each build.
+
+### Archive strategies
+
+Two strategies control how archives are organised:
+
+- `archive` — each version gets its own archive (preserves history)
+- `latest` — each build overwrites the previous archive (saves space)
+
+Add a remote destination in R:
+
+```{r eval=FALSE}
+projr_yml_dest_add_github(
+  title = "my-release",
+  content = "output",
+  structure = "archive"
+)
+
+projr_yml_dest_add_local(
+  title = "backup",
+  content = "raw-data",
+  path = "/mnt/shared/backups",
+  structure = "latest"
+)
+```
+
+### Restoration
+
+Restore a full project (raw data + outputs) from its remotes:
+
+```{r eval=FALSE}
+projr_restore_repo("owner/repo")
+```
+
+Or update a single label:
+
+```{r eval=FALSE}
+projr_content_update(label = "raw-data")
+projr_content_update(label = "output", version = "0.1.0")
+```
+
+projr tries each configured remote in order (GitHub, OSF, local) and uses
+the first one that has the requested content.
+
+---
+
+## Profiles
+
+A profile is an alternative `_projr.yml` that overrides specific settings.
+Profile files are named `_projr-<name>.yml` and inherit everything not
+explicitly overridden from the base `_projr.yml`.
+
+```
+_projr.yml            # Base configuration
+_projr-dev.yml        # Development overrides
+_projr-public.yml     # Public sharing overrides
+```
+
+Create and activate a profile:
+
+```{r eval=FALSE}
+projr_profile_create("dev")
+projr_profile_get()
+```
+
+Activate via environment variable:
+
+```{r eval=FALSE}
+Sys.setenv(PROJR_PROFILE = "dev")
+```
+
+Or in `.Renviron`:
+
+```
+PROJR_PROFILE=dev
+```
+
+Example `_projr-dev.yml` that disables GitHub archiving and Git commits:
+
+```yaml
+build:
+  github:
+    enabled: false
+  git:
+    commit: false
+```
+
+---
+
+## Environment variables
+
+projr reads several environment variables. Set them in R, in `.Renviron`,
+or with `projr_env_set()`:
+
+```{r eval=FALSE}
+# In R
+Sys.setenv(PROJR_PROFILE = "dev")
+Sys.setenv(PROJR_OUTPUT_LEVEL = "debug")
+
+# Or use the helper
+projr_env_set(profile = "dev")
+```
+
+In `.Renviron`:
+
+```
+PROJR_PROFILE=dev
+PROJR_OUTPUT_LEVEL=std
+```
+
+Key variables:
+
+- `PROJR_PROFILE` — active profile name
+- `PROJR_OUTPUT_LEVEL` — console verbosity (`none`, `std`, `debug`)
+- `PROJR_CLEAR_OUTPUT` — when to clear output dirs (`pre`, `post`, `never`)
+- `PROJR_LOG_DETAILED` — write detailed log files (`TRUE`/`FALSE`)
+- `PROJR_AUTO_INSTALL` — auto-install missing R packages (`TRUE`/`FALSE`)
+- `GITHUB_PAT` — GitHub personal access token
+- `OSF_PAT` — OSF personal access token
+
+projr also supports per-project environment files that are loaded at build
+time. In order of increasing priority:
+
+1. `_environment` — global (committed to Git)
+2. `_environment-<profile>` — profile-specific
+3. `_environment.local` — local overrides (git-ignored)
+
+---
+
+## Dependencies and renv
+
+renv locks R package versions in `renv.lock` so that builds are reproducible
+months or years later. projr wraps common renv operations:
+
+```{r eval=FALSE}
+# Initialise renv for the project
+projr_init_renv()
+
+# Snapshot current package versions
+projr_renv_update()
+
+# Restore packages from the lockfile
+projr_renv_restore()
+```
+
+Use renv when long-term reproducibility matters (publications, shared
+projects). Skip it for quick exploratory work.
+
+---
+
+## The whole game
+
+```{r eval=FALSE}
+# 1. Initialise project
+projr_init()
+
+# 2. Place raw data in _raw_data/
+# 3. Write analysis in .Rmd or .qmd files
+
+# 4. Iterate with dev builds
+projr_build_dev()
+# Check outputs in _tmp/projr/v0.0.1/
+
+# 5. First release
+projr_build_patch()
+# Outputs in _output/, archived to remotes
+
+# 6. Keep working, then release again
+projr_build_minor()
+
+# 7. Collaborator restores the project
+projr_restore_repo("you/your-project")
+```
+
+In short: organise files by purpose, iterate with dev builds, release with
+versioned builds, and restore anywhere with a single command.

@@ -1,0 +1,306 @@
+#!/usr/bin/env bash
+# Requires Bash ≥ 4.0
+
+set -euo pipefail
+
+die() {
+  printf '[ERROR] %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<EOF
+Usage: $0 [-R <registry>] (-u <user> | -o <owner>) [-p <password>] [-i <images>] [-t <tag>] [-f <file>] [-d <dir_base>] [-F] [-D] [-h]
+  -R, --registry   Registry ('docker' or 'ghcr'; defaults to 'ghcr')
+  -u, --user       Username for login (required for private images; defaults to \$GITHUB_USER for GHCR)
+  -o, --owner      Owner/namespace (defaults to GitHub user)
+  -p, --password   Password/token (GHCR reads \$GH_TOKEN, \$GITHUB_TOKEN or \$GITHUB_PAT if unset)
+  -i, --image      Image name(s), comma-separated (defaults to <cwd_basename>-<branch>, then <cwd_basename>)
+  -t, --tag        Tag (defaults to 'latest')
+  -f, --file       Output SIF filename (appends .sif if not specified)
+  -d, --dir_base   Directory to store SIF (defaults to cache dirs)
+  -F, --force      Force download & overwrite existing SIF
+  -D, --debug      Enable debug output
+  -h, --help       Show this help and exit
+
+Examples:
+  # Pull the default image based on the current directory and branch
+  $0
+
+  # Pull an image and save it to a specific file
+  $0 -f my-image.sif
+
+  # Pull an image specifying the owner and tag
+  $0 -o my-org -t v1.0
+
+  # Force download and specify the image name explicitly
+  $0 -F -i my-custom-image
+EOF
+  exit 1
+}
+
+debug_log() {
+  if [[ "$debug" == true ]]; then
+    printf '[DEBUG] %s\n' "$*" >&2
+  fi
+  return 0
+}
+
+# Ensure required commands exist
+ensure_prerequisites() {
+  debug_log "Running ensure_prerequisites"
+  for cmd in curl git apptainer; do
+    command -v "$cmd" >/dev/null || die "'$cmd' not found; please install it."
+  done
+}
+
+# Defaults
+file=""
+image=()
+tag="latest"
+force=""
+dir_base=""
+registry="ghcr"
+owner=""
+image_base="$(basename "$PWD")"
+image_base="${image_base,,}"
+login_user=""
+password=""
+debug=false
+
+# Parse CLI args
+parse_args() {
+  debug_log "Parsing arguments: $*"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -R|--registry) registry="$2"; shift 2;;
+      -u|--user)     login_user="$2"; shift 2;;
+      -o|--owner)    owner="$2"; shift 2;;
+      -p|--password) password="$2"; shift 2;;
+      -i|--image)    IFS=, read -r -a image <<<"$2"; shift 2;;
+      -f|--file)     file="${2%.sif}.sif"; shift 2;;
+      -t|--tag)      tag="$2"; shift 2;;
+      -d|--dir_base) dir_base="$2"; shift 2;;
+      -F|--force)    force="--force"; shift;;
+      -D|--debug)    debug=true; shift;;
+      -h|--help)     usage;;
+      *) die "Unknown option: $1";;
+    esac
+  done
+}
+
+# Determine registry host
+get_hostname() {
+  debug_log "Determining registry host for $registry"
+  case "$registry" in
+    docker) registry_host="docker.io" ;;
+    ghcr)   registry_host="ghcr.io" ;;
+    *)      die "Unsupported registry '$registry'" ;;
+  esac
+  debug_log "registry_host=$registry_host"
+}
+
+# Populate $password for GHCR if needed
+get_ghcr_token() {
+  debug_log "Fetching GHCR token if needed"
+  if [[ "$registry" == "ghcr" && -z "$password" ]]; then
+    password="${GH_TOKEN:-${GITHUB_TOKEN:-${GITHUB_PAT:-}}}"
+    debug_log "GHCR token ${password:+retrieved}"
+  fi
+}
+
+# Top-level owner getter
+get_owner() {
+  debug_log "Determining owner/namespace"
+  if [[ -n "$owner" ]]; then
+    debug_log "  → owner explicitly set to '$owner'"
+    return
+  fi
+
+  if [[ "$registry" == "ghcr" ]]; then
+    owner="$(get_owner_from_remote)"
+    debug_log "  → from git remote: '${owner:-<none>}'"
+    if [[ -z "$owner" ]]; then
+      owner="$(get_owner_from_token)"
+      debug_log "  → from token: '${owner:-<none>}'"
+    fi
+  fi
+
+  if [[ -n "$login_user" ]]; then
+    owner="$login_user"
+    debug_log "  → owner set from login_user: '$owner'"
+  fi
+
+  # 3) Give up if still empty
+  if [[ -z "$owner" ]]; then
+    die "Cannot determine owner; please specify with -o/--owner."
+  fi
+}
+
+# Try to fetch the username via GitHub API
+get_owner_from_token() {
+  [[ -z "$password" ]] && return
+  local status
+  status=$(curl -w '%{http_code}' -s \
+    -H "Authorization: token $password" \
+    https://api.github.com/user -o /tmp/gh_user.json)
+  if [[ $status -ne 200 ]]; then
+    debug_log "  → token lookup failed (HTTP $status)"
+    return
+  fi
+  grep -m1 -oP '"login":\s*"\K[^"]+' /tmp/gh_user.json \
+    | sed -E 's/.*"login": *"([^"]+)".*/\1/'
+}
+
+
+# Parse 'owner' from `git remote origin` URL
+get_owner_from_remote() {
+  local url owner
+  url=$(git config --get remote.origin.url 2>/dev/null) || return
+  if [[ $url =~ github\.com[:/]+([^/]+)/[^/]+(\.git)?$ ]]; then
+    owner="${BASH_REMATCH[1]}"
+    echo "$owner"
+  fi
+}
+
+# (Optional) login_user detection for GHCR
+get_login_user() {
+  debug_log "Determining login_user"
+  if [[ -z "$login_user" && "$registry" == "ghcr" && -n "$GITHUB_USER" ]]; then
+    login_user="$GITHUB_USER"
+    debug_log "  → login_user set from \$GITHUB_USER: $login_user"
+  fi
+}
+
+
+log_args() {
+  debug_log "registry=$registry"
+  debug_log "login_user=$login_user"
+  debug_log "owner=$owner"
+  debug_log "image_base=$image_base"
+  debug_log "image=${image[*]}"
+  debug_log "file=$file"
+  debug_log "tag=$tag"
+  debug_log "dir_base=$dir_base"
+  debug_log "force=$force"
+  debug_log "debug=$debug"
+}
+
+# Login before any registry probing
+login() {
+  debug_log "Authenticating to $registry_host"
+  if [[ -n "$login_user" && -n "$password" ]]; then
+    echo "$password" | apptainer registry login -u "$login_user" --password-stdin "docker://$registry_host"
+  else
+    debug_log "Skipping registry login (no credentials)"
+  fi
+}
+
+get_image_candidates() {
+  debug_log "Generating image candidates"
+  if (( ${#image[@]} == 0 )); then
+    local branch
+    branch=$(get_current_branch)
+    debug_log "current branch=$branch"
+    if [[ -n "$branch" ]]; then
+      image=("$image_base-$branch" "$image_base")
+    else
+      image=("$image_base")
+    fi
+    debug_log "candidates=${image[*]}"
+  fi
+}
+
+get_current_branch() {
+  debug_log "Fetching current Git branch"
+  if git rev-parse --is-inside-work-tree &>/dev/null && git symbolic-ref --quiet HEAD &>/dev/null; then
+    git symbolic-ref --short HEAD | tr '/\.' '_' | tr '[:upper:]' '[:lower:]'
+  else
+    echo ""
+  fi
+}
+
+filename_from_uri() {
+  if [[ -n "$file" ]]; then
+    echo "$file"
+    return
+  fi
+  debug_log "Deriving SIF filename from $1"
+  local sel_uri="$1" base br part
+  base="$2"
+  br=$(get_current_branch)
+  part=${sel_uri#*://*/}; part=${part%%:*}; part=${part##*/}
+  if [[ "$part" == "$base-$br" ]]; then
+    echo "$part.sif"
+  else
+    echo "$base.sif"
+  fi
+}
+
+get_dir() {
+  debug_log "Computing output directory"
+  local d
+  if [[ -n "$dir_base" ]]; then
+    d="$dir_base"
+  elif [[ -n "${APPTAINER_CACHE_DIR:-}" ]]; then
+    d="$APPTAINER_CACHE_DIR"
+  elif [[ -d "/scratch/$USER" ]]; then
+    d="/scratch/$USER/.local/share/apptainer/sif"
+  else
+    d="$HOME/.local/share/apptainer/sif"
+  fi
+  mkdir -p "$d"
+  echo "$d"
+}
+
+build_apptainer() {
+  debug_log "Starting build_apptainer for $1"
+  local uri="$1" sif="${2:-}"
+  echo "Building Apptainer image '$sif' from Docker image '$uri'"
+  local out_dir
+  out_dir=$(get_dir)
+  apptainer build ${force:+--force} "$out_dir/$sif" "$uri"
+  echo "Completed: $sif"
+}
+
+main() {
+  parse_args "$@"
+  ensure_prerequisites
+  get_hostname
+  get_ghcr_token
+  get_owner
+  get_login_user
+  log_args
+  login
+  get_image_candidates
+  debug_log "Image candidates: ${image[*]}"
+
+  # Try each image candidate in turn; the first one that builds wins
+  local success=0
+  for cand in "${image[@]}"; do
+    uri="docker://$registry_host/$owner/$cand:$tag"
+    # derive the sif filename for this URI
+    sif_candidate=$(filename_from_uri "$uri" "$image_base")
+    echo "Attempting to build from: $uri → $sif_candidate"
+
+    # disable errexit so we can catch failures
+    set +e
+    build_apptainer "$uri" "$sif_candidate"
+    rc=$?
+    set -e
+
+    if [[ $rc -eq 0 ]]; then
+      success=1
+      break
+    else
+      echo "[WARN] build from $uri failed (exit $rc), trying next candidate..."
+    fi
+  done
+
+  if [[ $success -eq 0 ]]; then
+    die "No matching image could be pulled"
+  fi
+  echo "Successfully built SIF: $sif_candidate"
+}
+
+main "$@"

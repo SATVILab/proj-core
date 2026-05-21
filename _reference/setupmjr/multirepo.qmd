@@ -1,0 +1,24 @@
+---
+title: "multirepo"
+toc: true
+---
+
+The `multirepo` subcommand acts as a wrapper around the bundled `repos` utility, which is installed alongside `setupmjr`. It is designed to manage local workspaces and batch-process actions across multiple repositories.
+
+## Commands
+
+```
+  multirepo clone
+  multirepo workspace
+  multirepo codespace
+  multirepo create
+  multirepo <other repos command>
+```
+
+Any command passed to `setupmjr multirepo` will be automatically proxied to the bundled `repos` tool.
+
+> Note: The commands `install-r-deps` and `run` are deliberately excluded from this wrapper and must be called directly via `repos` instead.
+
+## Details
+
+The core operations for managing multiple repositories collectively (e.g. cloning a list of repositories, configuring cross-repo VS Code workspaces) are powered by the `repos` utility. The `multirepo` subcommand simplifies their execution from the `setupmjr` CLI.

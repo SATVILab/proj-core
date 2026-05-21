@@ -1,0 +1,53 @@
+---
+title: "git"
+toc: true
+---
+
+The `git` subcommand is used to set up git.
+
+## Commands
+
+```
+  git
+  git profile
+  git auth
+  git auth text
+  git auth cache
+  git auth mngr
+```
+
+## Setting up Git
+
+To work with Git, you need to do two things:
+
+1. Supply Git with your name and email (if not already configured).
+2. Provide Git with credentials to authenticate with remote repositories, e.g. GitHub.
+
+To set this up, run the following command (which is also part of the `setupmjr hpc` command):
+
+```bash
+setupmjr git
+```
+
+You will be prompted to enter your full name and email address (if these are not already set), which Git uses to identify you as the author of commits.
+
+In addition, you will be prompted to enter your GitHub username and a personal access token (PAT). This allows Git to authenticate with GitHub when you push commits or perform other operations that require authentication.
+
+To get a GitHub PAT, go to your GitHub account settings, navigate to "Developer settings" > "Personal access tokens", and generate a new token with the appropriate scopes (e.g. `repo` for full control of private repositories).
+
+If you skip entering any of the above information, you can always run `setupmjr git` again to set it up later.
+
+::: {.callout-info collapse="true"}
+## Details
+
+Git authentication is configured by the following:
+
+1. It is ensured that `.bashrc.d` and `.zshrc.d` files are sourced by `.bashrc` and `.zshrc`, respectively.
+
+2. The credential helper is set to the following for GitHub:
+
+    ```
+    !f() { sleep 1; echo "username=${GITHUB_USER:-TOKEN}"; echo "password=${GH_TOKEN:-$GITHUB_TOKEN}"; }; f
+    ```
+3. A script is added to `~/.bashrc.d/login.sh` and `~/.zshrc.d/login.sh`, which has space for the user to add their GitHub username and PAT, and then exports these as environment variables (`GITHUB_USER` and `GITHUB_USERNAME` for the user name and `GITHUB_TOKEN`, `GH_TOKEN` and `GITHUB_PAT` for the token).
+:::

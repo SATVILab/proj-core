@@ -1,0 +1,194 @@
+---
+title: "hpc"
+toc: true
+---
+
+The `hpc` subcommand is used to configure HPC environments.
+
+## Commands
+
+```
+  hpc       Master HPC setup
+  hpc git
+  hpc scratch
+  hpc apptainer
+  hpc slurm
+  hpc r
+```
+
+## Installation
+
+Assuming that the HPC is running on Linux, the following line will install `setupmjr` without requiring `sudo` permission:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MiguelRodo/setupmjr/main/install-local.sh | bash
+```
+
+Confirm that installation worked by running:
+
+```bash
+setupmjr --version
+```
+
+If the above does not work, then `setupmjr` may not be on your system `PATH`. In that case, you can add the following line to your shell profile (typically `~/.bashrc`):
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Then run:
+
+```
+source ~/.bashrc
+```
+
+At this point, the following should succeed:
+
+```bash
+setupmjr --version
+```
+
+If not, then the initial installation failed.
+
+## Setup
+
+The following command will configure the HPC environment:
+
+```bash
+setupmjr hpc
+```
+
+Apart from needing to edit one file for Git authentication if this has not been setup yet (see below), this command requires no other user input.
+
+`setupmjr hpc` does the following:
+
+- *Helps store large files effectively*: Large files are stored in the `/scratch` space (if available) rather than `/home`, to respect HPC storage policies.
+- *Authenticates with Git*: Scripts are added to which the user needs to simply add their GitHub username and a personal access token (PAT) to enable seamless Git operations from the HPC environment.
+- *Add `Apptainer` and `SLURM` helpers*: If these tools are available on the HPC, helper scripts will be added to simplify their usage.
+- *Configures `radian`*: If you use `radian` as your R terminal, it is configured to work properly on the HPC.
+
+Each of these features can be configured independently via the respective subcommands (`hpc scratch`, `hpc apptainer`, `hpc slurm`, `hpc git`, `hpc r`).
+
+### Setting up Git
+
+To configure Git, run the following command (which is also part of the `setupmjr hpc` command):
+
+```bash
+setupmjr hpc git
+```
+
+This command simply calls `setupmjr git`, which configures your Git profile (name and email) via `setupmjr git profile` and sets up authentication credentials via `setupmjr git auth`.
+
+For full details on how this works and how it configures your environment (including setting up `.bashrc.d` and `.zshrc.d` files for seamless GitHub authentication), please refer to the [git setup documentation](git.qmd).
+
+### Using scratch space
+
+HPCs typically have a separate scratch space for storing large files (i.e. `/scratch/$USER`), which is often faster and has different quotas than the home directory.
+The `setupmjr hpc scratch` command helps you configure your environment to use this scratch space effectively.
+
+To set this up, run the following command (also part of `setupmjr hpc`):
+
+```bash
+setupmjr hpc scratch
+```
+
+This configures your environment to preferentially use the `/scratch` space for the following:
+
+- Apptainer and Singularity images
+  - Automatically cached in `/scratch/$USER/.cache/<apptainer/singularity>` instead of the default location in the home directory.
+- R libraries:
+  - The `R_LIBS_USER` environment variable is set to `/scratch/$USER/.local/lib/R` and created, so that R packages are installed in the scratch space instead of the home directory.
+  - Similarly, various `RENV_*` environment variables configuring `renv` paths are set to point to the scratch space.
+
+::: {.callout-info collapse="true"}
+## Details
+
+The `hpc scratch` command configures the environment to use the `/scratch` directory by doing the following:
+
+1. It ensures that `.bashrc.d` files are sourced by `.bashrc`.
+
+2. A script is added to `~/.bashrc.d/hpc-scratch.sh`, which explicitly exports paths for Apptainer, Singularity, `renv`, and R libraries to use `/scratch/$USER`. Specifically, it sets the following environment variables:
+   - `RENV_CONFIG_PAK_ENABLED=false`
+   - `RENV_CONFIG_SANDBOX_ENABLED=false`
+   - `RENV_PATHS_LIBRARY_ROOT=/scratch/${USER}/.local/lib/R/library`
+   - `RENV_PATHS_CACHE=/scratch/${USER}/renv/cache:/renv/cache`
+   - `RENV_PATHS_ROOT=/scratch/${USER}/.local/lib/R/library`
+   - `R_LIBS=/scratch/${USER}/.local/lib/R`
+:::
+
+
+### `hpc slurm`
+
+SLURM is a popular program used by HPCs to allocate compute resources.
+The `hpc slurm` command sets up several utility scripts for interacting with the Slurm workload manager, placing them in `~/.local/bin`.
+
+To set this up, run the following command (also part of `setupmjr hpc`):
+
+```bash
+setupmjr hpc slurm
+```
+
+The commands are as follows (run `<command> --help` for usage information on each, e.g. `slurm-sbatch --help`):
+
+- `slurm-sbatch`: Submits a SLURM job using `sbatch` and logs the submission details, including the submitted script contents and standard output, into a specified or default log directory (`_tmp/log/sbatch`).
+- `slurm-sintx`: Starts an interactive SLURM session using `sintx`. By default, it requests 2 tasks (`--ntasks=2`) and 1 node (`--nodes=1`). You can specify the number of tasks as the first argument, and pass additional flags to `sintx` thereafter (e.g., `slurm-sintx 4 --mem=10G`).
+- `slurm-squeue`: Lists the current jobs for the logged-in user using `squeue -u $USER`.
+
+::: {.callout-info collapse="true"}
+## Details
+
+The `hpc slurm` command sets up these tools by doing the following:
+
+1. It ensures that `~/.local/bin` is added to your system's `PATH` environment variable by (if required) adding an export statement to your `.bashrc`.
+
+2. It places the specific utility wrapper scripts (`slurm-sbatch`, `slurm-sintx`, `slurm-squeue`) directly into `~/.local/bin/`.
+:::
+
+### `hpc apptainer`
+
+Apptainer (formerly Singularity) is a container system commonly used on HPCs to ensure reproducible software environments. 
+The `hpc apptainer` command sets up several utility scripts for seamlessly pulling, locating, and interacting with Apptainer containers.
+It is designed to work tightly with images built using the `MiguelRodo/devcontainer-prebuild` GitHub Action, sharing many of the same conventions (but is compatible with containers from both Docker Hub and GitHub Container Registry).
+
+To set this up, run the following command (also part of `setupmjr hpc`):
+
+```bash
+setupmjr hpc apptainer
+```
+
+The commands installed are as follows (run `<command> --help` for usage information on each, e.g. `apptainer-run --help`):
+
+- `apptainer-pull`: Downloads Docker or GitHub Container Registry (GHCR) images and saves them as `.sif` files. It cleverly infers the appropriate repository owner, image name, and tag dynamically based on your current directory's Git remote and active branch.
+- `apptainer-path`: Automatically locates the relevant `.sif` file for your current project. It searches Apptainer cache and `/scratch` directories, prioritizing image names that match your current directory's basename and active Git branch.
+- `apptainer-exists`: A utility script that checks if the required `.sif` container for the current workspace has already been downloaded, returning a clean exit (0) if found.
+- `apptainer-run`: Executes a given command inside the project's Apptainer container. If no command is passed, it falls back to opening an interactive shell (`apptainer shell`) within the container.
+- `apptainer-rscript`: A specialized wrapper to easily pass and execute R expressions (via `Rscript -e`) directly inside the project's container without needing to manually spin up an interactive shell.
+
+::: {.callout-info collapse="true"}
+## Details
+
+The `hpc apptainer` command sets up these tools by doing the following:
+
+1. It ensures that `~/.local/bin` is added to your system's `PATH` environment variable by (if required) adding an export statement to your `.bashrc`.
+
+2. It places the specific utility wrapper scripts directly into `~/.local/bin/`.
+:::
+
+
+### `hpc r`
+
+To configure `R` for the HPC environment, run the following command (which is also part of `setupmjr hpc`):
+
+```bash
+setupmjr hpc r
+```
+
+This command simply calls `setupmjr r`, which configures `radian` and `lintr`.
+
+For full details on how this works and how it configures your environment, please refer to the [R setup documentation](r.qmd).
+
+You can also pass `--not-radian` or `--not-lintr` to opt out of those configurations:
+
+```bash
+setupmjr hpc r --not-lintr
+```

@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+
+# ——— Defaults —————————————————
+file_specified=false
+sif_file=""
+directory=""
+candidates=()
+base_dirs=()
+
+usage() {
+  cat<<EOF
+Usage: $0 [-f <file>] [-d <directory>]
+  -f, --file       SIF filename (with or without .sif)
+  -d, --directory  Directory to search (skips cache dirs)
+  -h, --help       Show this help and exit
+EOF
+  exit 1
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -f|--file)
+        file_specified=true
+        sif_file="${2%.sif}.sif"
+        shift 2
+        ;;
+      -d|--directory)
+        directory="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        ;;
+      *)
+        echo "Unknown argument: $1" >&2
+        usage
+        ;;
+    esac
+  done
+}
+
+get_default_candidates() {
+  local base current branches br
+  base=$(basename "$PWD" | tr '[:upper:]' '[:lower:]')
+  current=$(get_current_branch)
+
+  echo "${base}-${current}.sif"
+  [[ "$current" != "main"   ]] && echo "${base}-main.sif"
+  [[ "$current" != "master" ]] && echo "${base}-master.sif"
+
+  mapfile -t branches < <(get_branches)
+  for br in "${branches[@]}"; do
+    [[ "$br" == "$current" || "$br" == "main" || "$br" == "master" ]] && continue
+    echo "${base}-${br}.sif"
+  done
+
+  echo "${base}.sif"
+}
+
+get_candidates() {
+  if [[ "$file_specified" == true ]]; then
+    candidates=( "$sif_file" )
+  else
+    mapfile -t candidates < <(get_default_candidates)
+  fi
+}
+
+get_current_branch() {
+  if ! git rev-parse --is-inside-work-tree &>/dev/null \
+     || ! git symbolic-ref --quiet HEAD &>/dev/null; then
+    echo main
+  else
+    git symbolic-ref --short HEAD | tr '/' '_'
+  fi
+}
+
+get_branches() {
+  if ! git rev-parse --is-inside-work-tree &>/dev/null \
+     || ! git symbolic-ref --quiet HEAD &>/dev/null; then
+    echo main master
+  else
+    git for-each-ref --format='%(refname:short)' refs/heads/ | tr '/' '_'
+  fi
+}
+
+get_dirs() {
+  if [[ -n "$directory" ]]; then
+    base_dirs=( "$directory" )
+  else
+    base_dirs=()
+    [[ -n "${APPTAINER_CACHE_DIR:-}" ]] && base_dirs+=( "$APPTAINER_CACHE_DIR" )
+    [[ -d "/scratch/$USER/.local/share/apptainer/sif" ]] && \
+      base_dirs+=( "/scratch/$USER/.local/share/apptainer/sif" )
+    [[ -d "$HOME/.local/share/apptainer/sif" ]] && \
+      base_dirs+=( "$HOME/.local/share/apptainer/sif" )
+  fi
+}
+
+detect_sif() {
+  for cand in "${candidates[@]}"; do
+    for dir in "${base_dirs[@]}"; do
+      if [[ -f "$dir/$cand" ]]; then
+        printf '%s\n' "$dir/$cand"
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+
+main() {
+  parse_args "$@"
+  get_candidates
+  get_dirs
+  detect_sif
+}
+
+main "$@"

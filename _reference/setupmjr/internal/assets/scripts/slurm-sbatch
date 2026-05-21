@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+
+set -e
+
+# Function to display usage
+usage() {
+    echo "Usage: $0 [-l <log_dir>] <slurm_script> [-- sbatch_options...]"
+    echo ""
+    echo "  -l, --log-dir <log_dir> : Directory to save logs (default: _tmp/log/sbatch)"
+    echo "  -n, --no-sub-dir        : Do not use the script name to create a sub-directory in the log directory"
+    echo "  -d, --debug             : Print debug information (for the slurm-sbatch script itself)"
+    echo "  <slurm_script>          : Path to the Slurm script"
+    echo "  [-- sbatch_options...]  : Additional options to pass to sbatch"
+    echo ""
+    echo "Description:"
+    echo "  This script submits a Slurm job and logs the details of the submission, including"
+    echo "  the script contents and standard output, to files in a specified log directory."
+    echo ""
+    echo "  The script name is sanitized by removing any non-alphanumeric characters except"
+    echo "  dashes (-) and underscores (_). The sanitized name is used in the log filenames."
+    echo "  The log filenames also include the current date and time to ensure uniqueness."
+    echo ""
+    echo "Example:"
+    echo "  $0 -l custom_logs my_job_script.sh -- --mem=4G --time=2:00:00"
+    echo ""
+    exit 1
+}
+
+# Default log directory
+WD=$(pwd)
+LOG_DIR_SHORT="_tmp/log/sbatch"
+SLURM_SCRIPT=""
+NO_SUB_DIR=false
+DEBUG=false
+
+# Parse options and script path
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        -l|--log-dir)
+            LOG_DIR_SHORT="$2"
+            shift 2
+            ;;
+        -n|--no-sub-dir)
+            NO_SUB_DIR=true
+            shift
+            ;;
+        -d|--debug)
+            DEBUG=true
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*|--*)
+            echo "Unknown option: $1"
+            usage
+            ;;
+        *)
+            if [[ -z "$SLURM_SCRIPT" ]]; then
+                SLURM_SCRIPT="$1"
+            else
+                echo "Error: Multiple scripts provided. Only one Slurm script is allowed."
+                usage
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Ensure a Slurm script is provided
+if [[ -z "$SLURM_SCRIPT" ]]; then
+    echo "Error: Slurm script path is required."
+    usage
+fi
+
+if [[ ! -f "$SLURM_SCRIPT" ]]; then
+    echo "Error: Slurm script $SLURM_SCRIPT does not exist."
+    exit 1
+fi
+
+if [ "$NO_SUB_DIR" == "false" ]; then
+    FILENAME=$(basename "$SLURM_SCRIPT")
+    FILENAME_NO_EXT="${FILENAME%.*}"
+    SANITIZED_SCRIPT_NAME=$(echo "$FILENAME_NO_EXT" | tr -cd '[:alnum:]_-')
+    if [ -z "$SANITIZED_SCRIPT_NAME" ]; then
+        echo "Error: Invalid script name."
+        echo "Sanitized script name was empty."
+        exit 1
+    fi
+    LOG_DIR_SHORT="$LOG_DIR_SHORT/$SANITIZED_SCRIPT_NAME"
+fi
+
+# Convert relative paths to absolute paths if necessary
+if [[ ! "$LOG_DIR_SHORT" = /* ]]; then
+    LOG_DIR="$WD/$LOG_DIR_SHORT"
+else
+    LOG_DIR="$LOG_DIR_SHORT"
+fi
+
+if [[ ! "$SLURM_SCRIPT" = /* ]]; then
+    SLURM_SCRIPT="$WD/$SLURM_SCRIPT"
+fi
+
+# Handle any remaining sbatch options
+sbatch_options=("$@")
+
+# If debug is enabled, print debug information before proceeding
+if [ "$DEBUG" == "true" ]; then
+    echo ""
+    echo "-----------------------------"
+    echo "DEBUG: slurm-sbatch parameters: "
+    echo "LOG_DIR_SHORT: $LOG_DIR_SHORT"
+    echo "SLURM_SCRIPT: $SLURM_SCRIPT"
+    echo "NO_SUB_DIR: $NO_SUB_DIR"
+    echo "LOG_DIR: $LOG_DIR"
+    echo "sbatch_options: ${sbatch_options[*]}"
+    echo "-----------------------------"
+    echo ""
+fi
+
+# Create the log directory if it doesn't exist
+mkdir -p "$LOG_DIR"
+
+# Create .gitignore if it doesn't exist and add the log directory to it
+if [[ -d "$WD/.git" ]] && [[ ! "$LOG_DIR_SHORT" = /* ]]; then
+    PATH_GITIGNORE="$WD/.gitignore"
+    if [ ! -f "$PATH_GITIGNORE" ]; then
+        touch "$PATH_GITIGNORE"
+    fi
+    # Check if the log directory is already in .gitignore, and if not, add it
+    if ! grep -Fxq "$LOG_DIR_SHORT" "$PATH_GITIGNORE"; then
+        echo "$LOG_DIR_SHORT" >> "$PATH_GITIGNORE"
+        echo "$LOG_DIR_SHORT has been added to .gitignore"
+    fi
+fi
+
+# Generate the log file name based on the current date and time
+LOG_FILE_TIME=$(date '+%Y-%m-%d_%H-%M-%S')
+LOG_FILE_BASENAME="run_${LOG_FILE_TIME}_out.txt"
+LOG_FILE_SHORT="$LOG_DIR_SHORT/$LOG_FILE_BASENAME"
+LOG_FILE="$LOG_DIR/$LOG_FILE_BASENAME"
+
+if [[ -f "$LOG_FILE" ]]; then
+    rm "$LOG_FILE"
+fi
+
+LOG_FILE_SCRIPT_BASENAME="run_${LOG_FILE_TIME}_script.txt"
+LOG_FILE_SCRIPT_SHORT="$LOG_DIR_SHORT/$LOG_FILE_SCRIPT_BASENAME"
+LOG_FILE_SCRIPT="$LOG_DIR/$LOG_FILE_SCRIPT_BASENAME"
+
+if [[ -f "$LOG_FILE_SCRIPT" ]]; then
+    rm "$LOG_FILE_SCRIPT"
+fi
+
+# Copy the contents of the sbatch script over to the log file
+{
+    echo "--- SLURM SCRIPT ---"
+    cat "$SLURM_SCRIPT"
+    echo "--------------------"
+    echo ""
+} >> "$LOG_FILE_SCRIPT"
+
+# Run sbatch with the provided script and options, capturing the job ID and standard output (from sbatch)
+{
+    echo "--- sbatch Command ---"
+    sbatch_command="sbatch ${sbatch_options[*]} -o $LOG_FILE $SLURM_SCRIPT"
+    echo "$sbatch_command"
+    echo "-----------------------"
+    echo ""
+    echo "--- Standard Output ---"
+    # Send standard output from run itself (not sbatch) to "$LOG_FILE"
+    sbatch_output=$(sbatch "${sbatch_options[@]}" -o "$LOG_FILE" "$SLURM_SCRIPT")
+    echo "$sbatch_output"
+    echo "-----------------------"
+    echo ""
+} >> "$LOG_FILE_SCRIPT"
+
+# Output a message indicating where the log file is located
+echo "$sbatch_output"
+echo "To view a record of the slurm script submitted, run:"
+echo "cat '$LOG_FILE_SCRIPT_SHORT'"
+echo "To view the output from the run, run:"
+echo "cat '$LOG_FILE_SHORT'"

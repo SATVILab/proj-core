@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<EOF
+Usage: $0 [-f <file>] [-d <directory>] [-q] -- <R expression>
+  -f, --file        Explicit SIF filename (with or without .sif)
+  -d, --directory   Directory to search first (skips cache dirs)
+  -q, --quiet       No output; just exit 0 if no expression
+  -h, --help        Show this help and exit
+
+Everything after "--" (or the first non-flag) is treated as an R expression
+and passed to Rscript -e. If no expression is given, the script exits.
+EOF
+  exit 1
+}
+
+quiet=false
+args_for_path=()
+custom_command=()
+saw_cmd=false
+
+# parse flags
+while [[ $# -gt 0 ]]; do
+  if [[ "$saw_cmd" == true ]]; then
+    custom_command+=( "$1" )
+    shift
+    continue
+  fi
+
+  case $1 in
+    -f|--file)
+      # map our -f/--file into apptainer-path's --sif
+      args_for_path+=(--file "$2")
+      shift 2
+      ;;
+    -d|--directory)
+      args_for_path+=(--directory "$2")
+      shift 2
+      ;;
+    -q|--quiet)
+      quiet=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      ;;
+    --)
+      saw_cmd=true
+      shift
+      ;;
+    -*)
+      usage
+      ;;
+    *)
+      saw_cmd=true
+      custom_command+=( "$1" )
+      shift
+      ;;
+  esac
+done
+
+# locate the SIF
+if ! sif_path=$(apptainer-path "${args_for_path[@]}"); then
+  [[ "$quiet" != true ]] && echo "Error: no SIF found" >&2
+  exit 1
+fi
+
+# informational output suppressed in quiet mode
+if [[ "$quiet" != true ]]; then
+  echo "Found SIF: $sif_path"
+fi
+
+# ——— Exec the "custom_command" inside the container —————————————————
+if (( ${#custom_command[@]} )); then
+  # join all tokens into one R expression string
+  expr="${custom_command[*]}"
+  [[ "$quiet" != true ]] && \
+    echo "Running inside container: Rscript -e \"$expr\""
+
+  exec apptainer exec "$sif_path" Rscript -e "$expr"
+else
+  [[ "$quiet" != true ]] && echo "No R expression given; exiting."
+  exit 1
+fi

@@ -1,0 +1,49 @@
+name: Go Version and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Exact version (e.g. 1.2.3). Cannot be used with bump_type.'
+        required: false
+      bump_type:
+        description: 'Component to bump: major | minor | patch. Cannot be used with version.'
+        required: false
+      version_force:
+        description: 'Force specified `version`, ignoring strict version progression checks.'
+        required: false
+      go_version:
+        description: 'Go version to install.'
+        required: false
+      apt_repo:
+        description: 'Optional target GitHub repository in owner/name form for publishing generated .deb artifacts as an apt repository.'
+        required: false
+        default: 'MiguelRodo/apt-miguelrodo'
+      goreleaser_config:
+        description: "Optional path to the GoReleaser config file."
+        required: false
+        default: ".goreleaser.yml"
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: MiguelRodo/actions/go-version-release@v2
+        env:
+          SCOOP_TAP_TOKEN: ${{ secrets.SCOOP_TAP_TOKEN }}
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          apt_repo_token: ${{ secrets.APT_REPO_TOKEN }}
+          apt_signing_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          version: ${{ inputs.version }}
+          bump_type: ${{ inputs.bump_type }}
+          version_force: ${{ inputs.version_force }}
+          go_version: ${{ inputs.go_version }}
+          apt_repo: ${{ inputs.apt_repo }}
+          goreleaser_config: ${{ inputs.goreleaser_config }}
+          scoop_token: ${{ secrets.SCOOP_TAP_TOKEN }}
+          homebrew_token: ${{ secrets.HOMEBREW_TAP_TOKEN }}

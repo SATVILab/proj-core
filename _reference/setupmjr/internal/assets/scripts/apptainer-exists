@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<EOF
+Usage: $0 [-f <file>] [-d <directory>] [-q]
+  -f, --file      Explicit SIF filename (with or without .sif)
+  -d, --directory Directory to search first (skips cache dirs)
+  -q, --quiet     Don't print the "Found:" line, just exit 0 if found
+  -h, --help      Show this help and exit
+EOF
+  exit 1
+}
+
+# parse your flags into args_for_path
+quiet=false
+args_for_path=()
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -f|--file)
+      # map our -f/--file into apptainer-path's --sif
+      args_for_path+=(--file "$2")
+      shift 2
+      ;;
+    -d|--directory)
+      args_for_path+=(--directory "$2")
+      shift 2
+      ;;
+    -q|--quiet)
+      quiet=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if sif_path=$(apptainer-path "${args_for_path[@]}"); then
+  if [[ "$quiet" != true ]]; then
+    echo "Found: $sif_path"
+  fi
+  exit 0
+else
+  echo "Error: no SIF found" >&2
+  exit 1
+fi

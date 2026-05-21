@@ -1,0 +1,41 @@
+---
+title: "setupmjr"
+toc: true
+---
+
+`setupmjr` is a cross-platform setup utility.
+
+## Commands
+
+```bash
+setupmjr - Cross-platform setup utility
+Commands:
+  hpc       Master HPC setup
+  hpc scratch [--r]
+  hpc apptainer
+  hpc slurm
+  hpc login git
+  hpc git
+  hpc r
+  shell <shell> rc.d
+  shell <shell> path
+  shell <shell> login
+  r radian
+  git
+  git user
+  git login
+  git login text
+  git login cache
+  git login mngr
+  repo readme
+  repo devcontainer [--repo <owner/repo>] [--branch <branch>] [--no-prebuild]
+  repo action <action-name>
+  repo install repos
+```
+
+## Subcommands
+- [hpc](hpc.qmd)
+- [shell](shell.qmd)
+- [r](r.qmd)
+- [git](git.qmd)
+- [repo](repo.qmd)

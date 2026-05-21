@@ -1,0 +1,240 @@
+---
+title: "Scripts and Hooks"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Scripts and Hooks}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+Scripts and hooks customize projr's build process.
+Scripts control which documents to render; hooks run custom R code before or after builds.
+
+Both are configured in `_projr.yml` and have separate settings for production
+builds (`projr_build_patch()`, etc.) and development builds (`projr_build_dev()`).
+
+## Build Scripts
+
+Build scripts specify which documents or R scripts projr should render.
+
+### Configuration format
+
+Scripts are plain character vectors in `_projr.yml`. No sub-keys or nested
+structures are allowed.
+
+```yaml
+build:
+  scripts:
+    - analysis.qmd
+    - report.Rmd
+    - data-processing.R
+
+dev:
+  scripts:
+    - quick-test.qmd
+```
+
+### Priority
+
+Production builds resolve scripts in this order:
+
+1. `file` parameter passed to the build function
+2. `build.scripts` in `_projr.yml`
+3. `_quarto.yml` or `_bookdown.yml` project file
+4. Auto-detection of `.Rmd`, `.qmd`, `.R` files
+
+Development builds follow the same order, but check `dev.scripts` before
+falling back to `build.scripts`:
+
+1. `file` parameter
+2. `dev.scripts` in `_projr.yml`
+3. `build.scripts` in `_projr.yml`
+4. `_quarto.yml` or `_bookdown.yml`
+5. Auto-detection
+
+When `dev.scripts` is set, it completely replaces `build.scripts` for dev
+builds. To include production scripts in dev builds, list them explicitly
+under `dev.scripts`.
+
+All specified scripts are validated before the build starts. Missing files
+cause an immediate error.
+
+### Managing scripts with R
+
+```{r eval=FALSE}
+# Add scripts
+projr_yml_script_add(c("analysis.qmd", "report.Rmd"))
+
+# Remove a script
+projr_yml_script_rm("report.Rmd")
+
+# Remove all scripts
+projr_yml_script_rm_all()
+```
+
+### Example: separate dev and production scripts
+
+```yaml
+# _projr.yml
+build:
+  scripts:
+    - full-analysis.qmd
+    - supplementary.Rmd
+    - appendix.Rmd
+
+dev:
+  scripts:
+    - quick-test.qmd
+```
+
+```{r eval=FALSE}
+projr_build_dev()   # renders quick-test.qmd only
+projr_build_patch() # renders all three documents
+```
+
+### Example: one-off builds
+
+```{r eval=FALSE}
+projr_build_dev("exploratory-analysis.Rmd")
+projr_build_dev(c("methods.Rmd", "results.Rmd"))
+```
+
+## Build Hooks
+
+Hooks run custom R scripts at specific points in the build process.
+
+### Configuration format
+
+Hooks are plain character vectors organized by stage. Three stage keys are
+available: `pre` (before the build), `post` (after the build), and `both`
+(runs at both stages). File paths are relative to the project root.
+
+```yaml
+build:
+  hooks:
+    pre:
+      - hooks/setup.R
+      - hooks/download-data.R
+    post:
+      - hooks/cleanup.R
+    both:
+      - hooks/log-timestamp.R
+
+dev:
+  hooks:
+    pre: hooks/dev-setup.R
+```
+
+`build.hooks` are ignored in dev builds. `dev.hooks` are ignored in
+production builds. Unlike scripts, there is no fallback between them.
+
+### Execution details
+
+Hooks within a stage run in the order listed. Each hook runs in an isolated
+child environment of the global environment, so objects created in one hook
+are not available in subsequent hooks. To share data between hooks, save to
+disk (e.g., `saveRDS()`).
+
+Where hooks run in the build flow:
+
+```
+Production build:
+  1. Pre-build hooks
+  2. Version bump
+  3. Clear output directories
+  4. Git commit (if configured)
+  5. Render scripts
+  6. Git commit outputs (if configured)
+  7. Distribute to remotes
+  8. Post-build hooks
+
+Development build:
+  1. Dev pre-build hooks
+  2. Clear output directories
+  3. Render scripts
+  4. Dev post-build hooks
+```
+
+Like scripts, all hook files are validated before the build starts.
+A missing hook file causes an immediate error. If a hook fails at runtime,
+the build stops.
+
+### Managing hooks with R
+
+```{r eval=FALSE}
+projr_yml_hooks_add(path = "hooks/setup.R", stage = "pre")
+projr_yml_hooks_add_pre("hooks/check-auth.R")
+projr_yml_hooks_add_post("hooks/cleanup.R")
+
+# Append instead of overwriting
+projr_yml_hooks_add("hooks/extra.R", stage = "pre", overwrite = FALSE)
+
+# Remove all hooks
+projr_yml_hooks_rm_all()
+```
+
+### Example: data preparation hook
+
+```{r eval=FALSE}
+# hooks/prepare-data.R
+data_url <- Sys.getenv("DATA_URL")
+if (!nzchar(data_url)) stop("DATA_URL not set")
+
+download.file(data_url, destfile = "_raw_data/data.csv")
+data <- read.csv("_raw_data/data.csv")
+stopifnot(nrow(data) > 0)
+message("Data preparation complete")
+```
+
+```yaml
+build:
+  hooks:
+    pre: hooks/prepare-data.R
+```
+
+### Example: separate dev and production hooks
+
+```yaml
+build:
+  hooks:
+    pre: hooks/prod-setup.R
+
+dev:
+  hooks:
+    pre: hooks/dev-setup.R
+```
+
+```{r eval=FALSE}
+# hooks/dev-setup.R
+message("Setting up dev environment...")
+Sys.setenv(PROJR_OUTPUT_LEVEL = "debug")
+```
+
+```{r eval=FALSE}
+# hooks/prod-setup.R
+message("Setting up production environment...")
+source("hooks/check-auth.R")
+source("hooks/prepare-data.R")
+```
+
+## Tips
+
+- Use relative paths for portability.
+- Keep each hook focused on one task. Use descriptive filenames
+  (e.g., `validate-credentials.R` rather than `hook1.R`).
+- Wrap external operations in `tryCatch()` so error messages are actionable.
+- Test hooks outside a build with `source("hooks/my-hook.R")`.
+
+## See Also
+
+- `?projr_yml_hooks_add` - Add hooks programmatically
+- `?projr_yml_script_add` - Add scripts programmatically
+- `?projr_build_dev` - Development builds
+- `?projr_build_patch` - Production builds
