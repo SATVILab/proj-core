@@ -1,4 +1,95 @@
 use std::process::Command;
+use std::io::Write;
+
+pub fn get_github_token() -> Result<String, String> {
+    // Track A: Environment Context Inspection
+    let env_vars = ["GITHUB_PAT", "GH_TOKEN", "GITHUB_TOKEN"];
+    for var in &env_vars {
+        if let Ok(val) = std::env::var(var) {
+            let trimmed = val.trim();
+            if !trimmed.is_empty() {
+                return Ok(trimmed.to_string());
+            }
+        }
+    }
+
+    // Track B: System Git Credential Helper Interrogation
+    let mut child = Command::new("git")
+        .args(["credential", "fill"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn git credential fill: {}", e))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(b"protocol=https\nhost=github.com\n\n");
+    }
+
+    let output = child.wait_with_output().map_err(|e| format!("Failed to wait on git credential fill: {}", e))?;
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if let Some(password) = line.strip_prefix("password=") {
+                let trimmed = password.trim();
+                if !trimmed.is_empty() {
+                    return Ok(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    // Track C: GitHub CLI Engine Query
+    if let Ok(output) = Command::new("gh").args(["auth", "token"]).output() {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let trimmed = stdout.trim();
+            if !trimmed.is_empty() {
+                return Ok(trimmed.to_string());
+            }
+        }
+    }
+
+    // Output structured error if token is missing
+    Err("Error: GitHub authentication token not found.
+Authentication is required to interact with remote repositories via git push or fetch.
+
+To resolve this, please execute one of the following options:
+Option A (Environment Variable):
+    Set the GITHUB_PAT environment variable in your active terminal profile.
+Option B (GitHub CLI):
+    Install the 'gh' utility and run 'gh auth login' to authenticate your host.
+Option C (Git Helper Setup):
+    Approve host access directly inside your local system credential helper:
+    git credential approve < echo -e \"protocol=https\\nhost=github.com\\nusername=user\\npassword=YOUR_PAT\"".to_string())
+}
+
+pub fn execute_authenticated_git(args: &[&str], token: &str, current_dir: Option<&std::path::Path>) -> Result<(), String> {
+    // Construct an inline script helper string that Git will execute to read the password.
+    // Git credential helpers expect output formatted as key=value lines.
+    let inline_helper = format!("!f() {{ echo \"password={}\"; }}; f", token);
+
+    let mut cmd = Command::new("git");
+
+    // Wipe out standard global credential helpers for this command context only
+    cmd.arg("-c")
+       .arg(format!("credential.helper={}", inline_helper))
+       // Bind environment to fail fast instead of freezing on interactive prompts
+       .env("GIT_TERMINAL_PROMPT", "0")
+       // Append target arguments, e.g., ["push", "origin", "main"] or ["fetch"]
+       .args(args);
+
+    if let Some(dir) = current_dir {
+        cmd.current_dir(dir);
+    }
+
+    let status = cmd.status().map_err(|e| format!("Failed to execute system Git subprocess: {}", e))?;
+
+    match status {
+        s if s.success() => Ok(()),
+        s => Err(format!("Git command exited with failure status code: {}", s)),
+    }
+}
 
 /// Returns true if executing `git --version` succeeds.
 pub fn is_git_installed() -> bool {
@@ -83,19 +174,23 @@ pub fn git_commit_all(message: &str, current_dir: Option<&std::path::Path>) -> R
 }
 
 /// Runs `git push` to upload tracking offsets upstream.
-pub fn git_push(current_dir: Option<&std::path::Path>) -> Result<(), String> {
-    let mut push_cmd = Command::new("git");
-    push_cmd.arg("push");
-    if let Some(dir) = current_dir {
-        push_cmd.current_dir(dir);
+pub fn git_push(current_dir: Option<&std::path::Path>, token: Option<&str>) -> Result<(), String> {
+    if let Some(t) = token {
+        execute_authenticated_git(&["push"], t, current_dir)
+    } else {
+        let mut push_cmd = Command::new("git");
+        push_cmd.arg("push");
+        if let Some(dir) = current_dir {
+            push_cmd.current_dir(dir);
+        }
+
+        let output = push_cmd.output()
+            .map_err(|e| format!("Failed to execute 'git push': {}", e))?;
+
+        if !output.status.success() {
+            return Err(format!("'git push' failed: {}", String::from_utf8_lossy(&output.stderr)));
+        }
+
+        Ok(())
     }
-
-    let output = push_cmd.output()
-        .map_err(|e| format!("Failed to execute 'git push': {}", e))?;
-
-    if !output.status.success() {
-        return Err(format!("'git push' failed: {}", String::from_utf8_lossy(&output.stderr)));
-    }
-
-    Ok(())
 }

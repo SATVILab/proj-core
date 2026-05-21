@@ -42,14 +42,21 @@ impl Default for IgnoreType {
 /// let temp = TempDir::new().unwrap();
 /// let root = temp.path().to_path_buf();
 ///
-/// use proj::yml::{ResolvedGitConfig, RestrictionsConfig};
+/// use proj::yml::{ResolvedGitConfig, RestrictionsConfig, GlobalConfig};
 /// let mut dirs = HashMap::new();
 /// dirs.insert("raw".to_string(), ResolvedDir {
 ///     path: root.join("_raw"),
 ///     ignore: IgnoreConfig::Single("all".to_string())
 /// });
 ///
-/// let validated = ValidatedConfig { directories: dirs, git: ResolvedGitConfig { commit: false, push: false }, restrictions: RestrictionsConfig::default(), clear_output: None, old_dev_remove: None };
+/// let validated = ValidatedConfig { 
+///     config: GlobalConfig::default(), 
+///     directories: dirs, 
+///     git: ResolvedGitConfig { commit: false, push: false }, 
+///     restrictions: RestrictionsConfig::default(), 
+///     clear_output: None, 
+///     old_dev_remove: None 
+/// };
 /// update_ignores_for(&root, &validated).unwrap();
 ///
 /// assert!(root.join(".gitignore").exists());
@@ -455,12 +462,8 @@ fn append_unignores(path: &std::path::Path, ignores: &[String]) -> Result<(), St
                 }
             }
 
-            // Also check if any ignores are already in the file outside the block (for idempotency)
-            // But we actually only care about it being below the end marker, which we just checked.
-
             if !lower_lines.is_empty() && new_lines.last().map(|s| s.as_str()) != Some("") && lower_lines.first().map(|s| s.as_str()) != Some("") {
-                // don't blindly add an empty line, see if we need spacing
-                // actually wait, let's just push them directly.
+                // Connection formatting lines can be wired here if needed
             }
 
             new_lines.extend(lower_lines);

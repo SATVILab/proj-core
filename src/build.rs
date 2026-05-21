@@ -35,7 +35,8 @@ pub enum BuildMode {
 /// let temp = TempDir::new().unwrap();
 /// std::fs::write(temp.path().join("VERSION"), "Version: v1.0.0").unwrap();
 /// // Create a dummy _proj.yml to avoid fallback searching which executes everything
-/// std::fs::write(temp.path().join("_proj.yml"), "build:\n  scripts: []").unwrap();
+/// // We set push: false so we don't trigger GitHub token lookups in CI without env vars
+/// std::fs::write(temp.path().join("_proj.yml"), "build:\n  scripts: []\n  git:\n    push: false").unwrap();
 /// build_project(temp.path(), BuildMode::ProdPatch, None, None).unwrap();
 /// ```
 use crate::git::{is_git_installed, check_git_profile, git_commit_all, git_push};
@@ -158,7 +159,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     let mut validation_files = resolved_files.clone();
     validation_files.extend(resolved_hooks.clone());
 
-    let resolved_python_cmd = run_pre_flight_checks(
+    let (resolved_token, resolved_python_cmd) = run_pre_flight_checks(
         project_root,
         &config,
         is_prod_run,
@@ -300,7 +301,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
 
             if config.git.commit {
                 if config.git.push {
-                    git_push(Some(project_root))?;
+                    git_push(Some(project_root), resolved_token.as_deref())?;
                 }
             }
             Ok(())

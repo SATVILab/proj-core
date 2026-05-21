@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 use std::io::{self, BufRead, IsTerminal};
+use crate::git::{get_github_token, execute_authenticated_git};
 
 pub fn find_python_command() -> Option<String> {
     let variants = ["python3", "python"];
@@ -23,7 +24,15 @@ pub fn run_pre_flight_checks(
     resolved_files: &[PathBuf],
     quarto_exists: bool,
     bookdown_exists: bool,
-) -> Result<Option<String>, String> {
+) -> Result<(Option<String>, Option<String>), String> {
+    let mut resolved_token = None;
+    let needs_remote = config.git.push || (is_prod_run && config.restrictions.not_behind == Some(true)) || (is_prod_run && config.restrictions.not_behind.is_none());
+
+    if needs_remote && config.config.git.use_proj_cred_helper {
+        let token = get_github_token()?;
+        resolved_token = Some(token);
+    }
+
     if is_prod_run {
         let is_git_repo = project_root.join(".git").exists();
 
@@ -74,7 +83,7 @@ pub fn run_pre_flight_checks(
                         return Err("Error: Git repository detected but no upstream tracking remote is configured. Configure a remote or set build.restrictions.not_behind to false.".to_string());
                     }
                 } else {
-                    if is_behind_remote(project_root)? {
+                    if is_behind_remote(project_root, resolved_token.as_deref())? {
                         return Err("Error: The local branch is behind its tracking remote. Please pull or merge changes before building.".to_string());
                     }
                 }
@@ -211,7 +220,7 @@ pub fn run_pre_flight_checks(
         }
     }
 
-    Ok(resolved_python_cmd)
+    Ok((resolved_token, resolved_python_cmd))
 }
 
 fn has_tracking_remote(project_root: &std::path::Path) -> bool {
@@ -225,14 +234,18 @@ fn has_tracking_remote(project_root: &std::path::Path) -> bool {
     }
 }
 
-fn is_behind_remote(project_root: &std::path::Path) -> Result<bool, String> {
+fn is_behind_remote(project_root: &std::path::Path, token: Option<&str>) -> Result<bool, String> {
     // Perform fetch
-    let mut fetch_cmd = Command::new("git");
-    fetch_cmd.args(["fetch"]);
-    fetch_cmd.current_dir(project_root);
-    let fetch_out = fetch_cmd.output().map_err(|e| format!("Failed to fetch from remote: {}", e))?;
-    if !fetch_out.status.success() {
-        return Err(format!("Failed to fetch from remote: {}", String::from_utf8_lossy(&fetch_out.stderr)));
+    if let Some(t) = token {
+        execute_authenticated_git(&["fetch"], t, Some(project_root))?;
+    } else {
+        let mut fetch_cmd = Command::new("git");
+        fetch_cmd.args(["fetch"]);
+        fetch_cmd.current_dir(project_root);
+        let fetch_out = fetch_cmd.output().map_err(|e| format!("Failed to fetch from remote: {}", e))?;
+        if !fetch_out.status.success() {
+            return Err(format!("Failed to fetch from remote: {}", String::from_utf8_lossy(&fetch_out.stderr)));
+        }
     }
 
     // Check rev-list --count HEAD..@{u}
