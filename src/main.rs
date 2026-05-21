@@ -182,6 +182,16 @@ pub enum IgnoreCommands {
         #[arg(long, value_enum, default_value_t = proj::IgnoreType::All)]
         r#type: proj::IgnoreType,
     },
+    /// Manually force paths to be tracked by removing them from ignores via negation
+    Remove {
+        /// One or more raw file or directory paths
+        #[arg(required = true)]
+        paths: Vec<String>,
+
+        /// Target tracking surfaces (all, git, rbuild)
+        #[arg(long, value_enum, default_value_t = proj::IgnoreType::All)]
+        r#type: proj::IgnoreType,
+    },
 }
 
 fn main() {
@@ -276,6 +286,17 @@ fn main() {
                         eprintln!("Error adding ignores: {}", e);
                     } else {
                         println!("Successfully added paths to ignores");
+                    }
+                } else {
+                    eprintln!("Error finding project root");
+                }
+            }
+            IgnoreCommands::Remove { paths, r#type } => {
+                if let Some(root) = proj::root() {
+                    if let Err(e) = proj::remove_manual_ignores(&root, paths, r#type.clone()) {
+                        eprintln!("Error removing ignores: {}", e);
+                    } else {
+                        println!("Successfully removed paths from ignores");
                     }
                 } else {
                     eprintln!("Error finding project root");
