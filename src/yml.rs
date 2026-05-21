@@ -68,6 +68,7 @@ pub struct BuildConfig {
     pub git: GitConfigOpt,
     #[serde(default)]
     pub restrictions: RestrictionsConfig,
+    pub clear_output: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Default, Clone, PartialEq)]
@@ -98,6 +99,7 @@ impl Default for RestrictionsConfig {
 pub struct DevConfig {
     pub scripts: Option<Vec<String>>,
     pub hooks: Option<HooksConfig>,
+    pub old_dev_remove: Option<bool>,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -183,13 +185,22 @@ fn default_ignore() -> IgnoreConfig {
 /// ```rust
 /// use std::collections::HashMap;
 /// use proj::yml::{ValidatedConfig, ResolvedGitConfig, RestrictionsConfig, GlobalConfig};
-/// let config = ValidatedConfig { config: GlobalConfig::default(), directories: HashMap::new(), git: ResolvedGitConfig { commit: false, push: false }, restrictions: RestrictionsConfig::default() };
+/// let config = ValidatedConfig { 
+///     config: GlobalConfig::default(), 
+///     directories: HashMap::new(), 
+///     git: ResolvedGitConfig { commit: false, push: false }, 
+///     restrictions: RestrictionsConfig::default(), 
+///     clear_output: None, 
+///     old_dev_remove: None 
+/// };
 /// ```
 pub struct ValidatedConfig {
     pub config: GlobalConfig,
     pub directories: HashMap<String, ResolvedDir>,
     pub git: ResolvedGitConfig,
     pub restrictions: RestrictionsConfig,
+    pub clear_output: Option<String>,
+    pub old_dev_remove: Option<bool>,
 }
 
 /// Represents a validated directory with an absolute or properly referenced system path.
@@ -316,6 +327,8 @@ impl ProjConfig {
             directories: resolved,
             git: resolved_git,
             restrictions: self.build.restrictions.clone(),
+            clear_output: self.build.clear_output.clone(),
+            old_dev_remove: self.dev.old_dev_remove,
         })
     }
 }
@@ -333,7 +346,7 @@ impl ValidatedConfig {
     /// ```rust
     /// use std::path::PathBuf;
     /// use std::collections::HashMap;
-    /// use proj::yml::{ValidatedConfig, ResolvedDir, IgnoreConfig, ResolvedGitConfig, RestrictionsConfig};
+    /// use proj::yml::{ValidatedConfig, ResolvedDir, IgnoreConfig, ResolvedGitConfig, RestrictionsConfig, GlobalConfig};
     ///
     /// let mut dirs = HashMap::new();
     /// dirs.insert("raw".to_string(), ResolvedDir {
@@ -341,7 +354,14 @@ impl ValidatedConfig {
     ///     ignore: IgnoreConfig::Single("all".to_string())
     /// });
     ///
-    /// let config = ValidatedConfig { config: proj::yml::GlobalConfig::default(), directories: dirs, git: ResolvedGitConfig { commit: false, push: false }, restrictions: RestrictionsConfig::default() };
+    /// let config = ValidatedConfig { 
+    ///     config: GlobalConfig::default(), 
+    ///     directories: dirs, 
+    ///     git: ResolvedGitConfig { commit: false, push: false }, 
+    ///     restrictions: RestrictionsConfig::default(), 
+    ///     clear_output: None, 
+    ///     old_dev_remove: None 
+    /// };
     /// let path = config.get_path(&PathBuf::from("/mock/root"), "raw-data").unwrap();
     /// assert_eq!(path, PathBuf::from("/mock/root/_raw/data"));
     /// ```

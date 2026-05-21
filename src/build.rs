@@ -196,6 +196,14 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
 
     let version_before_build = initial_version.clone();
 
+    // 4.5. Workspace Pre-clearing Hooks
+    let current_version = initial_version.to_string(false);
+    let clear_output_env = std::env::var("PROJR_CLEAR_OUTPUT").ok();
+    let clear_output_val = clear_output_env.as_deref().or(config.clear_output.as_deref());
+
+    crate::clear::clear_old(project_root, &current_version, is_dev, config.old_dev_remove);
+    crate::clear::clear_pre(project_root, &current_version, &config, clear_output_val);
+
     // 5. Version Bump
     if is_dev {
         if initial_version.dev == 0 {
@@ -261,6 +269,12 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
             // ==========================================
             // STEP D: Post-Build Operations
             // ==========================================
+
+            let is_single_doc_engine = !quarto_exists && !bookdown_exists;
+            let clear_output_env = std::env::var("PROJR_CLEAR_OUTPUT").ok();
+            let clear_output_val = clear_output_env.as_deref().or(config.clear_output.as_deref());
+            crate::clear::clear_post(project_root, is_dev, &config, clear_output_val, is_single_doc_engine);
+
             if config.git.commit {
                 let ver_str = initial_version.to_string(false);
                 let final_message = match description {

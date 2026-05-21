@@ -14,6 +14,17 @@ Unlike automatic configurations driven by `_proj.yml`, these manual entries repr
 - `--force-create`: Boolean flag (default `true`). If true, creates ignore files if they don't exist. If false, skips file creation unless inherently warranted by environmental cues (e.g. finding a `.git` folder or a `DESCRIPTION` file).
 - `--type`: Optional filter selection (`all` [default], `git`, `rbuild`). Determines which tracking surface receives the manual path entries.
 
+## `proj ignore remove`
+
+Manually forces paths to be tracked by appending negated syntax (e.g. `!path/` or `^!pattern$`).
+
+These unignore entries represent permanent, user-specified negations and are placed strictly *below* the `# --- END PROJ MANAGED ---` boundary in `.gitignore` and `.Rbuildignore` files.
+
+### Arguments & Flags
+
+- `<PATHS>...`: One or more raw file or directory paths to force tracking.
+- `--type`: Optional filter selection (`all` [default], `git`, `rbuild`). Determines which tracking surface receives the negated entries. Note that `.Rbuildignore` is skipped entirely if no `DESCRIPTION` file exists at the project root.
+
 ## Automated Synchronization
 
 The library core automatically synchronizes ignore rules dynamically across `.gitignore` and `.Rbuildignore` based on the configuration of `_proj.yml`.
