@@ -7,7 +7,7 @@ This document serves as a strict technical reference detailing exactly what happ
 The pre-build stage focuses on validation, environment auditing, and preparing the workspace state prior to executing any project code.
 
 ### 1.1 Config Audit
-The `_proj.yml` configuration is parsed and validated based on the execution mode (development vs. production).
+The `_proj.yml` configuration is parsed and validated based on the execution mode (development vs. production). The configuration audit also strictly evaluates arbitrary nested keys inside the `parameters` block and throws a validation error if multiple aliases (`parameter`, `params`, `param`) are found to prevent mapping conflicts.
 
 ### 1.2 Git Capability Audit
 If the configuration mandates version control integration (`git.commit` is `true`):
