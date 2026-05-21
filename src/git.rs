@@ -1,5 +1,93 @@
 use std::process::Command;
+use std::path::PathBuf;
 use std::io::Write;
+
+pub trait GitProvider {
+    fn is_available(&self) -> bool;
+    fn get_user_name(&self) -> Option<String>;
+    fn get_user_email(&self) -> Option<String>;
+    fn commit_all(&self, message: &str) -> Result<(), String>;
+    fn push(&self, remote: &str, branch: &str) -> Result<(), String>;
+    fn is_behind_remote(&self, remote: &str, branch: &str) -> Result<bool, String>;
+}
+
+pub struct SystemGit {
+    repo_path: PathBuf,
+}
+
+impl SystemGit {
+    pub fn new(repo_path: PathBuf) -> Self {
+        Self { repo_path }
+    }
+
+    // Helper to execute standard git actions safely with uniform string handling
+    fn run_cmd(&self, args: &[&str]) -> Result<String, String> {
+        let output = Command::new("git")
+            .current_dir(&self.repo_path)
+            .args(args)
+            .output()
+            .map_err(|e| format!("Failed to execute system git process: {}", e))?;
+
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+        }
+    }
+}
+
+impl GitProvider for SystemGit {
+    fn is_available(&self) -> bool {
+        // Quick check to see if the executable exists in PATH and runs
+        Command::new("git").arg("--version").output().is_ok()
+    }
+
+    fn get_user_name(&self) -> Option<String> {
+        self.run_cmd(&["config", "user.name"]).ok()
+    }
+
+    fn get_user_email(&self) -> Option<String> {
+        self.run_cmd(&["config", "user.email"]).ok()
+    }
+
+    fn commit_all(&self, message: &str) -> Result<(), String> {
+        self.run_cmd(&["add", "-A"])?;
+        self.run_cmd(&["commit", "-m", message])?;
+        Ok(())
+    }
+
+    fn push(&self, remote: &str, branch: &str) -> Result<(), String> {
+        self.run_cmd(&["push", remote, branch])?;
+        Ok(())
+    }
+
+    fn is_behind_remote(&self, remote: &str, branch: &str) -> Result<bool, String> {
+        // Fetch tracking info silently first
+        let _ = self.run_cmd(&["fetch", remote]);
+
+        // Count the commits the local branch is behind the remote tracking branch
+        let remote_target = format!("{}/{}", remote, branch);
+        let count_str = self.run_cmd(&["rev-list", "--count", &format!("HEAD..{}", remote_target)])?;
+
+        let count: usize = count_str.parse().unwrap_or(0);
+        Ok(count > 0)
+    }
+}
+
+// Unified Factory pattern isolated away from your pipeline logic
+pub fn create_git_provider(engine: crate::yml::GitEngine, repo_path: PathBuf) -> Result<Box<dyn GitProvider>, String> {
+    let provider = Box::new(SystemGit::new(repo_path));
+
+    match engine {
+        crate::yml::GitEngine::System | crate::yml::GitEngine::Auto => {
+            if provider.is_available() {
+                Ok(provider)
+            } else {
+                Err("System Git executable could not be resolved in the current environment PATH.".to_string())
+            }
+        }
+    }
+}
 
 pub fn get_github_token() -> Result<String, String> {
     // Track A: Environment Context Inspection
@@ -192,5 +280,30 @@ pub fn git_push(current_dir: Option<&std::path::Path>, token: Option<&str>) -> R
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use crate::yml::GitEngine;
+
+    #[test]
+    fn test_system_git_fails_gracefully_without_path() {
+        // Temporarily clear path variables to simulate an environment missing git
+        let original_path = env::var("PATH").unwrap_or_default();
+        unsafe { env::set_var("PATH", "") };
+
+        let result = create_git_provider(GitEngine::Auto, PathBuf::from("."));
+
+        // Restore environment safety
+        unsafe { env::set_var("PATH", original_path) };
+
+        assert!(result.is_err());
+        match result {
+            Err(e) => assert_eq!(e, "System Git executable could not be resolved in the current environment PATH."),
+            Ok(_) => panic!("Expected an error when git is not in PATH"),
+        }
     }
 }
