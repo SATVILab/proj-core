@@ -147,6 +147,7 @@ fn test_verify_remote_integrity() {
         git: proj::yml::ResolvedGitConfig { commit: false, push: false },
         restrictions: Default::default(),
         clear_output: None,
+        output_run: None,
         old_dev_remove: None,
     };
 

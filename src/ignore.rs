@@ -54,7 +54,7 @@ impl Default for IgnoreType {
 ///     directories: dirs, 
 ///     git: ResolvedGitConfig { commit: false, push: false }, 
 ///     restrictions: RestrictionsConfig::default(), 
-///     clear_output: None, 
+///     clear_output: None, output_run: None,
 ///     old_dev_remove: None 
 /// };
 /// update_ignores_for(&root, &validated).unwrap();
