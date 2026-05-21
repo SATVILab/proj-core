@@ -1,0 +1,22 @@
+name: Publish Quarto Site
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Publish Quarto Site
+        uses: MiguelRodo/actions/publish-quarto-site@v2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}

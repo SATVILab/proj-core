@@ -23,6 +23,17 @@ The newly computed version is then written back to the project configuration.
 ### 1.4 Git Pre-Snapshot
 If `git.commit` is enabled, all current workspace changes are staged and committed with a "Snapshot pre-build" message. This creates a clean rollback point should the build process fail.
 
+### 1.5 Dependency Pre-flight Checks
+The system dynamically scans the configuration and targeted scripts (such as `.Rmd`, `.qmd`, `.py`) to determine which interpreters and frameworks are required. Before any file modifications or executions occur:
+- R dependencies (like `bookdown` or `rmarkdown`) and Rscript availability are verified. Missing R packages are remediated interactively or automatically via `PROJR_AUTO_INSTALL`.
+- Quarto availability is checked.
+- Python executable availability (`python` or `python3`) is resolved and cached for the build stage.
+
+### 1.6 Production Build Git Checks
+For production builds, the system enforces optional git `restrictions` configured in `_proj.yml`:
+- Ensures the current branch matches `only_branches` or is not in `not_branches`.
+- Verifies that the branch has a tracking remote configured, and is not behind upstream if `not_behind` is enabled.
+
 ## 2. Actual Build Stage
 
 The actual build stage handles the isolation, resolution, and execution of scripts and documents. This entire stage is executed within a `catch_unwind` block to safely trap panics and allow for graceful recovery.
