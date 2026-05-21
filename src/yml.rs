@@ -25,6 +25,8 @@ pub struct ProjConfig {
     pub directories: HashMap<String, DirConfig>,
     #[serde(default)]
     pub build: BuildConfig,
+    #[serde(default)]
+    pub dev: DevConfig,
 }
 
 /// Represents the build configuration options within `_proj.yml`.
@@ -34,6 +36,16 @@ pub struct BuildConfig {
     pub profile: Option<String>,
     #[serde(default)]
     pub git: GitConfigOpt,
+    #[serde(default)]
+    pub restrictions: RestrictionsConfig,
+}
+
+#[derive(Deserialize, Debug, Default, Clone)]
+pub struct RestrictionsConfig {}
+
+#[derive(Deserialize, Debug, Default, Clone)]
+pub struct DevConfig {
+    pub scripts: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]

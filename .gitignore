@@ -1,1 +1,8 @@
 /target
+
+# --- PROJ MANAGED ---
+_output/**
+_raw/**
+_tmp/**
+docs/**
+# --- END PROJ MANAGED ---

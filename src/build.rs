@@ -130,7 +130,21 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
         let content = fs::read_to_string(&yml_path).map_err(|e| e.to_string())?;
         if let Ok(config) = serde_yaml::from_str::<ProjConfig>(&content) {
             let build = config.build;
-            build_scripts = build.scripts;
+            let dev = config.dev;
+
+            if is_dev {
+                if let Some(dev_scripts) = dev.scripts {
+                    if dev_scripts.is_empty() {
+                        return Err("dev.scripts cannot be empty when running in dev mode. The purpose of dev mode is to run scripts.".to_string());
+                    }
+                    build_scripts = Some(dev_scripts);
+                } else {
+                    build_scripts = build.scripts;
+                }
+            } else {
+                build_scripts = build.scripts;
+            }
+
             if profile.is_none() {
                 profile = build.profile;
             }

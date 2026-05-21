@@ -1,0 +1,10 @@
+# --- PROJ MANAGED ---
+^_output$
+^_output/$
+^_raw$
+^_raw/$
+^_tmp$
+^_tmp/$
+^docs$
+^docs/$
+# --- END PROJ MANAGED ---
