@@ -1,6 +1,20 @@
 use std::path::{Path, PathBuf};
 use std::fs;
 use crate::yml::ProjConfig;
+use crate::version::{version_get_from, version_set_at};
+
+/// Defines the mode of the build cycle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildMode {
+    /// Development run (`proj build-dev`)
+    Dev,
+    /// Production run, bumping major version (`proj build --major`)
+    ProdMajor,
+    /// Production run, bumping minor version (`proj build --minor`)
+    ProdMinor,
+    /// Production run, bumping patch version (`proj build --patch` or default)
+    ProdPatch,
+}
 
 /// Runs the build pipeline for the project within the provided `project_root`.
 ///
@@ -13,13 +27,53 @@ use crate::yml::ProjConfig;
 /// Returns an error if structural validation constraints fail (e.g., both Quarto and Bookdown configs are present and script configs conflict),
 /// if the scripts fail to execute, or if IO operations fail.
 ///
-/// ```rust,no_run
+/// ```rust
 /// use std::path::PathBuf;
-/// use proj::build::build_project;
+/// use proj::build::{build_project, BuildMode};
+/// use tempfile::TempDir;
 ///
-/// // build_project(&PathBuf::from("/mock/root"), None).unwrap();
+/// let temp = TempDir::new().unwrap();
+/// std::fs::write(temp.path().join("VERSION"), "Version: v1.0.0").unwrap();
+/// // Create a dummy _proj.yml to avoid fallback searching which executes everything
+/// std::fs::write(temp.path().join("_proj.yml"), "build:\n  scripts: []").unwrap();
+/// build_project(temp.path(), BuildMode::ProdPatch, None).unwrap();
 /// ```
-pub fn build_project(project_root: &Path, cli_profile: Option<&str>) -> Result<(), String> {
+pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&str>) -> Result<(), String> {
+    let mut initial_version = version_get_from(project_root)
+        .ok_or_else(|| "Could not read or parse VERSION file in project root".to_string())?;
+
+    let version_before_build = initial_version.clone();
+    let is_prod_run = matches!(mode, BuildMode::ProdMajor | BuildMode::ProdMinor | BuildMode::ProdPatch);
+
+    // Development Cycle Version Logic
+    if mode == BuildMode::Dev {
+        if initial_version.dev == 0 {
+            initial_version.dev = 1;
+            version_set_at(project_root, &initial_version.to_string(false))?;
+        }
+    } else {
+        // Production Cycle Version Bump Logic
+        match mode {
+            BuildMode::ProdMajor => {
+                initial_version.major += 1;
+                initial_version.minor = 0;
+                initial_version.patch = 0;
+                initial_version.dev = 0;
+            }
+            BuildMode::ProdMinor => {
+                initial_version.minor += 1;
+                initial_version.patch = 0;
+                initial_version.dev = 0;
+            }
+            BuildMode::ProdPatch => {
+                initial_version.patch += 1;
+                initial_version.dev = 0;
+            }
+            _ => {}
+        }
+        version_set_at(project_root, &initial_version.to_string(false))?;
+    }
+
     let quarto_exists = project_root.join("_quarto.yml").exists();
     let bookdown_exists = project_root.join("_bookdown.yml").exists();
 
@@ -39,6 +93,46 @@ pub fn build_project(project_root: &Path, cli_profile: Option<&str>) -> Result<(
         }
     }
 
+    // Isolate execution logic inside catch_unwind
+    let pr = project_root.to_path_buf();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        execute_build_pipeline(&pr, build_scripts, profile, quarto_exists, bookdown_exists)
+    }));
+
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => {
+            if is_prod_run {
+                // Revert to Development State of Previous Baseline
+                let mut reverted = version_before_build.clone();
+                if reverted.dev == 0 {
+                    reverted.dev = 1;
+                }
+                let _ = version_set_at(project_root, &reverted.to_string(false));
+            }
+            Err(e)
+        }
+        Err(_) => {
+            if is_prod_run {
+                // Revert to Development State of Previous Baseline
+                let mut reverted = version_before_build.clone();
+                if reverted.dev == 0 {
+                    reverted.dev = 1;
+                }
+                let _ = version_set_at(project_root, &reverted.to_string(false));
+            }
+            Err("Build pipeline panicked unexpectedly.".to_string())
+        }
+    }
+}
+
+fn execute_build_pipeline(
+    project_root: &Path,
+    build_scripts: Option<Vec<String>>,
+    profile: Option<String>,
+    quarto_exists: bool,
+    bookdown_exists: bool,
+) -> Result<(), String> {
     if let Some(scripts) = build_scripts {
         // Path A: Explicit Configuration via build.scripts
         let resolved_files = resolve_explicit_scripts(project_root, &scripts)?;
