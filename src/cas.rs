@@ -113,6 +113,65 @@ pub fn hash_file(path: &Path) -> io::Result<String> {
 ///
 /// # Errors
 /// Returns an `io::Error` if files cannot be read/written, or directories cannot be created.
+
+use crate::yml::{ValidatedConfig, InspectStrategy};
+
+/// Verifies the structural integrity of a configured remote.
+///
+/// # Arguments
+/// * `remote_title` - The name of the remote to inspect.
+/// * `validated` - The validated configuration containing remote data.
+///
+/// # Errors
+/// Returns an `io::Error` if the remote isn't found, manifest lacks files, or an integrity constraint fails.
+pub fn verify_remote_integrity(remote_title: &str, validated: &ValidatedConfig) -> io::Result<()> {
+    let remotes = validated.remotes.local.as_ref().ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No remotes configured"))?;
+    let remote = remotes.get(remote_title).ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("Remote '{}' not found", remote_title)))?;
+
+    let manifests_dir = remote.path.join("manifests");
+    let objects_dir = remote.path.join("objects");
+
+    if !manifests_dir.exists() {
+        return Ok(()); // Empty but structurally valid
+    }
+
+    for entry in fs::read_dir(manifests_dir)? {
+        let entry = entry?;
+        let manifest_path = entry.path();
+        if manifest_path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+
+        match remote.inspect {
+            InspectStrategy::Manifest => {
+                // If the strategy is Manifest, the mere existence of the JSON file implies integrity.
+                // It was confirmed by the read_dir above.
+                continue;
+            }
+            InspectStrategy::File => {
+                // Read and check each file
+                let content = fs::read_to_string(&manifest_path)?;
+                let manifest: DirectoryManifest = serde_json::from_str(&content).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+                for file_entry in manifest.files {
+                    if file_entry.hash.len() < 2 {
+                         return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid hash found"));
+                    }
+                    let prefix = &file_entry.hash[0..2];
+                    let suffix = &file_entry.hash[2..];
+                    let expected_path = objects_dir.join(prefix).join(suffix);
+
+                    if !expected_path.exists() {
+                        return Err(io::Error::new(io::ErrorKind::NotFound, format!("Missing file object for hash {}", file_entry.hash)));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn ingest_directory(
     project_root: &Path,
     cas_remote_root: &Path,
