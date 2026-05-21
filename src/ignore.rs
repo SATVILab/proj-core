@@ -3,6 +3,25 @@ use std::path::PathBuf;
 use std::fs;
 use crate::yml::{ValidatedConfig, IgnoreConfig};
 
+/// Filter selection for ignore targeting.
+///
+/// Controls whether manual ignores apply to all tracking surfaces or only specific ones.
+#[derive(Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum IgnoreType {
+    /// Target both tracking surfaces.
+    All,
+    /// Target `.gitignore` only.
+    Git,
+    /// Target `.Rbuildignore` only.
+    Rbuild,
+}
+
+impl Default for IgnoreType {
+    fn default() -> Self {
+        IgnoreType::All
+    }
+}
+
 /// Synchronizes ignore rules dynamically across `.gitignore` and `.Rbuildignore`.
 ///
 /// Modifies the ignore files in place within the demarcated regions defined by
@@ -252,4 +271,189 @@ pub fn root() -> Option<PathBuf> {
 /// ```
 pub fn update_ignores(project_root: &std::path::Path, validated: &ValidatedConfig) -> Result<(), String> {
     update_ignores_for(project_root, validated)
+}
+
+/// Classifies a path string based on disk status and trailing slash.
+fn is_directory(path_str: &str, project_root: &std::path::Path) -> bool {
+    if path_str.ends_with('/') {
+        return true;
+    }
+    let full_path = project_root.join(path_str);
+    full_path.is_dir()
+}
+
+fn format_gitignore_path(path_str: &str, is_dir: bool) -> String {
+    let mut formatted = path_str.to_string();
+    if is_dir && !formatted.ends_with('/') {
+        formatted.push('/');
+    }
+    formatted
+}
+
+fn format_rbuildignore_path(path_str: &str, is_dir: bool) -> Vec<String> {
+    let mut trimmed = path_str.trim_end_matches('/').trim().to_string();
+    trimmed = trimmed.replace(".", "\\.");
+    trimmed = trimmed.replace("*", ".*");
+    trimmed = trimmed.replace("?", ".");
+
+    if is_dir {
+        vec![
+            format!("^{}/", trimmed),
+            format!("^{}$", trimmed),
+        ]
+    } else {
+        vec![format!("^{}$", trimmed)]
+    }
+}
+
+/// Appends entries to an ignore file outside the managed block.
+///
+/// Modifies the ignore file by appending user-specified manual exclusions
+/// strictly above the `# --- PROJ MANAGED ---` block, ensuring separating whitespace.
+fn append_manual_ignores(path: &std::path::Path, ignores: &[String]) -> Result<(), String> {
+    if ignores.is_empty() {
+        return Ok(());
+    }
+
+    let start_marker = "# --- PROJ MANAGED ---";
+
+    let content_lines: Vec<String> = if path.exists() {
+        fs::read_to_string(path)
+            .map_err(|e| e.to_string())?
+            .lines()
+            .map(|s| s.to_string())
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let start_idx = content_lines.iter().position(|line| line == start_marker);
+
+    let mut new_lines = Vec::new();
+    let mut added_any = false;
+
+    match start_idx {
+        Some(idx) => {
+            new_lines.extend_from_slice(&content_lines[..idx]);
+            // Remove trailing empty lines before the block
+            while let Some(last) = new_lines.last() {
+                if last.trim().is_empty() {
+                    new_lines.pop();
+                } else {
+                    break;
+                }
+            }
+
+            for ignore in ignores {
+                if !new_lines.contains(ignore) && !content_lines[idx..].contains(ignore) {
+                    new_lines.push(ignore.clone());
+                    added_any = true;
+                }
+            }
+            if added_any && !new_lines.is_empty() {
+                new_lines.push("".to_string());
+            }
+            new_lines.extend_from_slice(&content_lines[idx..]);
+        }
+        None => {
+            new_lines.extend(content_lines.clone());
+            // Remove trailing empty lines at end of file
+            while let Some(last) = new_lines.last() {
+                if last.trim().is_empty() {
+                    new_lines.pop();
+                } else {
+                    break;
+                }
+            }
+
+            for ignore in ignores {
+                if !new_lines.contains(ignore) {
+                    new_lines.push(ignore.clone());
+                    added_any = true;
+                }
+            }
+        }
+    }
+
+    if !added_any {
+        return Ok(());
+    }
+
+    let mut final_content = new_lines.join("\n");
+    if !final_content.ends_with('\n') {
+        final_content.push('\n');
+    }
+
+    fs::write(path, final_content).map_err(|e| e.to_string())
+}
+
+/// Adds raw paths to tracking ignores manually outside the managed block.
+///
+/// Converts a list of raw string paths into properly formatted regular expressions
+/// or pattern rules, and injects them into `.gitignore` or `.Rbuildignore` accordingly.
+///
+/// If `force_create` is `false`, it skips creating `.gitignore` if no `.git` context exists,
+/// and skips `.Rbuildignore` if no `DESCRIPTION` file exists in the project root.
+///
+/// # Errors
+///
+/// Returns an error if an I/O exception occurs while attempting to read or write
+/// to the configuration files.
+///
+/// ```rust
+/// use std::fs;
+/// use tempfile::TempDir;
+/// use proj::ignore::{add_manual_ignores, IgnoreType};
+///
+/// let temp = TempDir::new().unwrap();
+/// let root = temp.path().to_path_buf();
+/// fs::write(root.join(".gitignore"), "# --- PROJ MANAGED ---\n").unwrap();
+///
+/// add_manual_ignores(&root, &["temp.log".to_string()], true, IgnoreType::Git).unwrap();
+///
+/// let contents = fs::read_to_string(root.join(".gitignore")).unwrap();
+/// assert!(contents.contains("temp.log"));
+/// assert!(contents.contains("# --- PROJ MANAGED ---"));
+/// ```
+pub fn add_manual_ignores(
+    project_root: &std::path::Path,
+    paths: &[String],
+    force_create: bool,
+    ignore_type: IgnoreType
+) -> Result<(), String> {
+    let mut git_ignores = Vec::new();
+    let mut rbuild_ignores = Vec::new();
+
+    for path_str in paths {
+        let is_dir = is_directory(path_str, project_root);
+
+        if ignore_type == IgnoreType::All || ignore_type == IgnoreType::Git {
+            git_ignores.push(format_gitignore_path(path_str, is_dir));
+        }
+
+        if ignore_type == IgnoreType::All || ignore_type == IgnoreType::Rbuild {
+            rbuild_ignores.extend(format_rbuildignore_path(path_str, is_dir));
+        }
+    }
+
+    let should_git = ignore_type == IgnoreType::All || ignore_type == IgnoreType::Git;
+    let should_rbuild = ignore_type == IgnoreType::All || ignore_type == IgnoreType::Rbuild;
+
+    if should_git {
+        let gitignore_path = project_root.join(".gitignore");
+        let valid_env = project_root.join(".git").exists();
+        if gitignore_path.exists() || force_create || (!force_create && valid_env) {
+            append_manual_ignores(&gitignore_path, &git_ignores)?;
+        }
+    }
+
+    if should_rbuild {
+        let rbuildignore_path = project_root.join(".Rbuildignore");
+        let valid_env = project_root.join("DESCRIPTION").exists();
+        if rbuildignore_path.exists() || force_create || (!force_create && valid_env) {
+            append_manual_ignores(&rbuildignore_path, &rbuild_ignores)?;
+        }
+    }
+
+    Ok(())
 }

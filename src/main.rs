@@ -50,6 +50,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: PathCommands,
     },
+    /// Ignore related operations
+    Ignore {
+        #[command(subcommand)]
+        command: IgnoreCommands,
+    },
     /// Build operations
     Build {
         /// Build a major version
@@ -149,6 +154,36 @@ pub enum VersionCommands {
     },
 }
 
+/// Commands for interacting with tracking file exclusions.
+///
+/// Handles operations to manually or automatically modify `.gitignore`
+/// and `.Rbuildignore` files.
+///
+/// # Errors
+///
+/// May fail if an ignore file cannot be created, written to, or modified
+/// due to lack of filesystem permissions.
+/// ```rust
+/// // use proj::IgnoreCommands;
+/// ```
+#[derive(Subcommand)]
+pub enum IgnoreCommands {
+    /// Manually append paths to project ignore files
+    Add {
+        /// One or more raw file or directory paths
+        #[arg(required = true)]
+        paths: Vec<String>,
+
+        /// Flag to force create ignore files if they do not exist
+        #[arg(long, action = clap::ArgAction::Set, default_value_t = true)]
+        force_create: bool,
+
+        /// Target tracking surfaces (all, git, rbuild)
+        #[arg(long, value_enum, default_value_t = proj::IgnoreType::All)]
+        r#type: proj::IgnoreType,
+    },
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -232,6 +267,19 @@ fn main() {
             } else {
                 eprintln!("Error finding project root");
                 std::process::exit(1);
+            }
+        },
+        Commands::Ignore { command } => match command {
+            IgnoreCommands::Add { paths, force_create, r#type } => {
+                if let Some(root) = proj::root() {
+                    if let Err(e) = proj::add_manual_ignores(&root, paths, *force_create, r#type.clone()) {
+                        eprintln!("Error adding ignores: {}", e);
+                    } else {
+                        println!("Successfully added paths to ignores");
+                    }
+                } else {
+                    eprintln!("Error finding project root");
+                }
             }
         },
         Commands::Version { command } => match command {

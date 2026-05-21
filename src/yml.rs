@@ -71,19 +71,6 @@ pub enum GitConfigOpt {
 
 impl Default for GitConfigOpt {
     fn default() -> Self {
-        GitConfigOpt::Detailed(GitConfig::default())
-    }
-}
-
-#[derive(Deserialize, Debug, Clone, PartialEq)]
-#[serde(untagged)]
-pub enum GitConfigOpt {
-    Boolean(bool),
-    Detailed(GitConfig),
-}
-
-impl Default for GitConfigOpt {
-    fn default() -> Self {
         // By default, acts as a detailed block with empty entries to evaluate run-time fallbacks
         GitConfigOpt::Detailed(GitConfig::default())
     }
