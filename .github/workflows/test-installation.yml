@@ -29,7 +29,7 @@ jobs:
       # Installs cargo-deb via pre-compiled binary instead of building from source
       - name: Install cargo-deb quickly
         run: |
-          curl -LSc - https://github.com/mmstick/cargo-deb/releases/latest/download/cargo-deb_amd64.tar.gz | tar -xzf - -C ~/.cargo/bin
+          cargo install cargo-deb
 
       - name: Compile Release Binary and Debian Package
         run: |
