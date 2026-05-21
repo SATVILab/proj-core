@@ -36,6 +36,10 @@ The `_proj.yml` file can also contain a `build` block to configure the behavior 
   - Globbing patterns are supported.
   - Prefix a pattern with `!` to exclude matching files from execution.
   - When provided, execution strictly follows the resolved relative order of scripts, bypassing automated project discovery fallbacks unless mutually exclusive configuration states are detected.
+- **`hooks`**: An optional map of lifecycle hook scripts to execute.
+  - **`pre`**: Scripts executed before the actual build phase and Git pre-snapshot.
+  - **`post`**: Scripts executed after the finalized post-build Git commit.
+  - **`both`**: Scripts executed during both `pre` and `post` phases.
 - **`profile`**: An optional environment profile identifier. When set, the system injects the `PROJR_PROFILE` environment variable into the isolated subprocess for all executed scripts and project rendering commands. This can be overridden at runtime via the `--profile` CLI flag.
 - **`git`**: An optional Git integration configuration. This can be a boolean toggle or an object mapping out detailed toggles:
   - **`commit`**: Whether to automatically perform pre and post-build commits (defaults to false).
@@ -44,6 +48,13 @@ The `_proj.yml` file can also contain a `build` block to configure the behavior 
   - **`only_branches`**: A list of allowed branch names. Production builds will abort if the current branch is not in this list.
   - **`not_branches`**: A list of restricted branch names. Production builds will abort if the current branch is in this list.
   - **`not_behind`**: Boolean (defaults to `true`). If enabled, production builds will verify that the local branch has an upstream tracking remote and is not behind it, aborting if the local branch needs to pull upstream changes.
+
+## Development Overrides
+
+You can define a `dev` block to completely override specific configurations during development builds (`proj build-dev`).
+
+- **`scripts`**: A list of script paths or globs. During development builds, this array entirely overrides `build.scripts`. Providing an explicitly empty array (`[]`) results in a strict error to prevent silently running an empty development build.
+- **`hooks`**: A mapping identical to `build.hooks`. When specified, these completely replace `build.hooks` during a development build.
 
 ## Environment Variables
 
