@@ -60,6 +60,13 @@ pub struct ProjConfig {
     pub dev: DevConfig,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum GitEngine {
+    Auto,
+    System,
+}
+
 /// Represents the top-level configuration key `config` in `_proj.yml`.
 #[derive(Deserialize, Debug, Default, Clone)]
 pub struct GlobalConfig {
@@ -67,17 +74,24 @@ pub struct GlobalConfig {
     pub git: GeneralGitConfig,
 }
 
+fn default_git_engine() -> GitEngine {
+    GitEngine::Auto
+}
+
 /// Represents general git settings inside `config.git`.
 #[derive(Deserialize, Debug, Clone)]
 pub struct GeneralGitConfig {
     #[serde(default = "default_use_proj_cred_helper")]
     pub use_proj_cred_helper: bool,
+    #[serde(default = "default_git_engine")]
+    pub engine: GitEngine,
 }
 
 impl Default for GeneralGitConfig {
     fn default() -> Self {
         Self {
             use_proj_cred_helper: true,
+            engine: GitEngine::Auto,
         }
     }
 }

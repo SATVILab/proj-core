@@ -39,9 +39,21 @@ pub enum BuildMode {
 /// std::fs::write(temp.path().join("_proj.yml"), "build:\n  scripts: []\n  git: false").unwrap();
 /// // build_project(temp.path(), BuildMode::ProdPatch, None, None).unwrap();
 /// ```
-use crate::git::{is_git_installed, check_git_profile, git_commit_all, git_push};
-use crate::yml::yml_read_from;
+use crate::git::{is_git_installed, check_git_profile, git_commit_all, create_git_provider};
+use crate::yml::{yml_read_from, GlobalConfig};
 use crate::build_pre::run_pre_flight_checks;
+
+pub fn post_build_sync(config: &GlobalConfig, repo_dir: PathBuf) -> Result<(), String> {
+    let provider = create_git_provider(config.git.engine, repo_dir)?;
+
+    println!("Staging build artifacts and committing mutations...");
+    provider.commit_all("chore: automated workspace build update [compiled asset tracking]")?;
+
+    println!("Pushing local branch mutations to remote host...");
+    provider.push("origin", "main")?;
+
+    Ok(())
+}
 
 pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&str>, description: Option<&str>) -> Result<(), String> {
     let is_dev = mode == BuildMode::Dev;
@@ -159,7 +171,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     let mut validation_files = resolved_files.clone();
     validation_files.extend(resolved_hooks.clone());
 
-    let (resolved_token, resolved_python_cmd) = run_pre_flight_checks(
+    let (_resolved_token, resolved_python_cmd) = run_pre_flight_checks(
         project_root,
         &config,
         is_prod_run,
@@ -334,7 +346,9 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
                     _ => format!("Build v{}", ver_str),
                 };
 
-                git_commit_all(&final_message, Some(project_root))?;
+                // Use the new Git Provider to commit
+                let provider = create_git_provider(config.config.git.engine, project_root.to_path_buf())?;
+                provider.commit_all(&final_message)?;
             }
 
             // Execute Post-Build Hooks (after post-build commit, before push)
@@ -376,7 +390,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
 
             if config.git.commit {
                 if config.git.push {
-                    git_push(Some(project_root), resolved_token.as_deref())?;
+                    post_build_sync(&config.config, project_root.to_path_buf())?;
                 }
             }
             Ok(())
