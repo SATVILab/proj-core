@@ -102,7 +102,7 @@ pub fn find_python_command() -> Option<String> {
 use crate::yml::ValidatedConfig;
 
 pub fn run_pre_flight_checks(
-    project_root: &std::path::Path,
+    project_root: &camino::Utf8Path,
     config: &ValidatedConfig,
     is_prod_run: bool,
     resolved_files: &[PathBuf],
@@ -122,7 +122,7 @@ pub fn run_pre_flight_checks(
 
         // Run the new pre_flight_git_check if it's a git repo and git is configured
         if is_git_repo {
-            pre_flight_git_check(&config.config, project_root.to_path_buf())?;
+            pre_flight_git_check(&config.config, project_root.as_std_path().to_path_buf())?;
         }
 
         let mut current_branch = None;
@@ -312,7 +312,7 @@ pub fn run_pre_flight_checks(
     Ok((resolved_token, resolved_python_cmd))
 }
 
-fn has_tracking_remote(project_root: &std::path::Path) -> bool {
+fn has_tracking_remote(project_root: &camino::Utf8Path) -> bool {
     let mut cmd = Command::new("git");
     cmd.args(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
     cmd.current_dir(project_root);
@@ -323,10 +323,10 @@ fn has_tracking_remote(project_root: &std::path::Path) -> bool {
     }
 }
 
-fn is_behind_remote(project_root: &std::path::Path, token: Option<&str>) -> Result<bool, String> {
+fn is_behind_remote(project_root: &camino::Utf8Path, token: Option<&str>) -> Result<bool, String> {
     // Perform fetch
     if let Some(t) = token {
-        execute_authenticated_git(&["fetch"], t, Some(project_root))?;
+        execute_authenticated_git(&["fetch"], t, Some(project_root.as_std_path()))?;
     } else {
         let mut fetch_cmd = Command::new("git");
         fetch_cmd.args(["fetch"]);
