@@ -8,36 +8,36 @@ pub fn clear_old(
     current_version: &str,
     is_dev: bool,
     old_dev_remove: Option<bool>,
-) {
+) -> anyhow::Result<()> {
     if old_dev_remove != Some(true) {
-        return;
+        return Ok(());
     }
 
     let base_path = project_root.join("_tmp").join("projr");
     if !base_path.exists() {
-        return;
+        return Ok(());
     }
 
-    if let Ok(entries) = fs::read_dir(&base_path) {
-        for entry in entries.flatten() {
-            if let Ok(metadata) = entry.metadata() {
-                if metadata.is_dir() {
-                    let dir_name = entry.file_name();
-                    let dir_name_str = dir_name.to_string_lossy();
+    for entry in fs::read_dir(&base_path)? {
+        let entry = entry?;
+        let metadata = entry.metadata()?;
+        if metadata.is_dir() {
+            let dir_name = entry.file_name();
+            let dir_name_str = dir_name.to_string_lossy();
 
-                    if is_dev {
-                        if dir_name_str != current_version {
-                            let _ = fs::remove_dir_all(entry.path());
-                        }
-                    } else {
-                        if dir_name_str != "log" {
-                            let _ = fs::remove_dir_all(entry.path());
-                        }
-                    }
+            if is_dev {
+                if dir_name_str != current_version {
+                    fs::remove_dir_all(entry.path())?;
+                }
+            } else {
+                if dir_name_str != "log" {
+                    fs::remove_dir_all(entry.path())?;
                 }
             }
         }
     }
+
+    Ok(())
 }
 
 /// Clears pre-build caches and output folders.
@@ -46,7 +46,7 @@ pub fn clear_pre(
     current_version: &str,
     config: &ValidatedConfig,
     clear_output: Option<&str>,
-) {
+) -> anyhow::Result<()> {
     // 1. Versioned cache path clearance
     let versioned_cache_path = project_root
         .join("_tmp")
@@ -54,19 +54,17 @@ pub fn clear_pre(
         .join(current_version);
 
     if versioned_cache_path.exists() {
-        if let Ok(entries) = fs::read_dir(&versioned_cache_path) {
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                // Exclude 'old' and 'docs' ? No, the reviewer said: "Update `clear_pre` to delete the contents of the versioned cache directory except for `old/`, correctly allowing `docs/` to be deleted during pre-build."
-                if name_str != "old" {
-                    if let Ok(metadata) = entry.metadata() {
-                        if metadata.is_dir() {
-                            let _ = fs::remove_dir_all(entry.path());
-                        } else {
-                            let _ = fs::remove_file(entry.path());
-                        }
-                    }
+        for entry in fs::read_dir(&versioned_cache_path)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            // Exclude 'old' and 'docs' ? No, the reviewer said: "Update `clear_pre` to delete the contents of the versioned cache directory except for `old/`, correctly allowing `docs/` to be deleted during pre-build."
+            if name_str != "old" {
+                let metadata = entry.metadata()?;
+                if metadata.is_dir() {
+                    fs::remove_dir_all(entry.path())?;
+                } else {
+                    fs::remove_file(entry.path())?;
                 }
             }
         }
@@ -74,7 +72,7 @@ pub fn clear_pre(
 
     // 2. For output directory clearing
     if clear_output == Some("never") {
-        return;
+        return Ok(());
     }
 
     let is_pre = clear_output == Some("pre");
@@ -97,15 +95,13 @@ pub fn clear_pre(
         // But since we use cache_base, it's cache_base/projr/<current_version>/<label>
         let safe_cache_path = cache_base.join("projr").join(current_version).join(label);
         if safe_cache_path.exists() {
-            if let Ok(entries) = fs::read_dir(&safe_cache_path) {
-                for entry in entries.flatten() {
-                    if let Ok(metadata) = entry.metadata() {
-                        if metadata.is_dir() {
-                            let _ = fs::remove_dir_all(entry.path());
-                        } else {
-                            let _ = fs::remove_file(entry.path());
-                        }
-                    }
+            for entry in fs::read_dir(&safe_cache_path)? {
+                let entry = entry?;
+                let metadata = entry.metadata()?;
+                if metadata.is_dir() {
+                    fs::remove_dir_all(entry.path())?;
+                } else {
+                    fs::remove_file(entry.path())?;
                 }
             }
         }
@@ -118,20 +114,20 @@ pub fn clear_pre(
             };
 
             if unsafe_path.exists() {
-                if let Ok(entries) = fs::read_dir(&unsafe_path) {
-                    for entry in entries.flatten() {
-                        if let Ok(metadata) = entry.metadata() {
-                            if metadata.is_dir() {
-                                let _ = fs::remove_dir_all(entry.path());
-                            } else {
-                                let _ = fs::remove_file(entry.path());
-                            }
-                        }
+                for entry in fs::read_dir(&unsafe_path)? {
+                    let entry = entry?;
+                    let metadata = entry.metadata()?;
+                    if metadata.is_dir() {
+                        fs::remove_dir_all(entry.path())?;
+                    } else {
+                        fs::remove_file(entry.path())?;
                     }
                 }
             }
         }
     }
+
+    Ok(())
 }
 
 /// Clears post-build deployment folders.
@@ -141,19 +137,17 @@ pub fn clear_post(
     config: &ValidatedConfig,
     clear_output: Option<&str>,
     is_single_doc_engine: bool,
-) {
+) -> anyhow::Result<()> {
     if !is_dev && is_single_doc_engine {
         if let Ok(docs_path) = config.get_path(project_root, "docs") {
             if docs_path.exists() {
-                if let Ok(entries) = fs::read_dir(&docs_path) {
-                    for entry in entries.flatten() {
-                        if let Ok(metadata) = entry.metadata() {
-                            if metadata.is_dir() {
-                                let _ = fs::remove_dir_all(entry.path());
-                            } else {
-                                let _ = fs::remove_file(entry.path());
-                            }
-                        }
+                for entry in fs::read_dir(&docs_path)? {
+                    let entry = entry?;
+                    let metadata = entry.metadata()?;
+                    if metadata.is_dir() {
+                        fs::remove_dir_all(entry.path())?;
+                    } else {
+                        fs::remove_file(entry.path())?;
                     }
                 }
             }
@@ -166,15 +160,13 @@ pub fn clear_post(
             if lower_label.starts_with("output") || lower_label == "data" {
                 if let Ok(unsafe_path) = config.get_path(project_root, label) {
                     if unsafe_path.exists() {
-                        if let Ok(entries) = fs::read_dir(&unsafe_path) {
-                            for entry in entries.flatten() {
-                                if let Ok(metadata) = entry.metadata() {
-                                    if metadata.is_dir() {
-                                        let _ = fs::remove_dir_all(entry.path());
-                                    } else {
-                                        let _ = fs::remove_file(entry.path());
-                                    }
-                                }
+                        for entry in fs::read_dir(&unsafe_path)? {
+                            let entry = entry?;
+                            let metadata = entry.metadata()?;
+                            if metadata.is_dir() {
+                                fs::remove_dir_all(entry.path())?;
+                            } else {
+                                fs::remove_file(entry.path())?;
                             }
                         }
                     }
@@ -182,4 +174,6 @@ pub fn clear_post(
             }
         }
     }
+
+    Ok(())
 }

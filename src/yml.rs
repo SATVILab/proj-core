@@ -592,7 +592,7 @@ pub fn yml_read_from(project_root: &std::path::Path, is_dev: bool) -> Result<Val
     let combined_val = get_combined_yml(None, project_root)?;
     let config: ProjConfig = serde_json::from_value(combined_val).map_err(|e| e.to_string())?;
     let validated = config.validate_and_resolve(project_root, is_dev)?;
-    update_ignores(project_root, &validated)?;
+    update_ignores(project_root, &validated).map_err(|e| format!("{:#}", e))?;
     Ok(validated)
 }
 
