@@ -163,14 +163,15 @@ pub fn version_get() -> Option<ProjVersion> {
 /// let new_version = fs::read_to_string(&version_path).unwrap();
 /// assert_eq!(new_version, "Version: v1.2.0");
 /// ```
-pub fn version_set_at(root: &std::path::Path, version_str: &str) -> Result<(), String> {
+pub fn version_set_at(root: &std::path::Path, version_str: &str) -> anyhow::Result<()> {
     let version = ProjVersion::parse(version_str)
-        .ok_or(format!("Could not parse version: {}", version_str))?;
+        .ok_or_else(|| anyhow::anyhow!("Could not parse version: {}", version_str))?;
 
     let version_file_path = root.join("VERSION");
     let content = format!("Version: {}", version.to_string(true));
 
-    fs::write(version_file_path, content).map_err(|e| e.to_string())
+    fs::write(version_file_path, content)?;
+    Ok(())
 }
 
 /// Thin production wrapper: Updates the current project version globally using implicit system environment to find root.
@@ -183,8 +184,8 @@ pub fn version_set_at(root: &std::path::Path, version_str: &str) -> Result<(), S
 /// use proj::version::version_set;
 /// version_set("1.0.0").unwrap();
 /// ```
-pub fn version_set(version_str: &str) -> Result<(), String> {
-    let root = root().ok_or("Could not find project root containing VERSION file")?;
+pub fn version_set(version_str: &str) -> anyhow::Result<()> {
+    let root = root().ok_or_else(|| anyhow::anyhow!("Could not find project root containing VERSION file"))?;
     version_set_at(&root, version_str)
 }
 

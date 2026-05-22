@@ -22,16 +22,16 @@ fn is_valid_profile_name(s: &str) -> bool {
 }
 
 /// Spawns a clean `_projr-<name>.yml` workspace node.
-pub fn create_profile(name: &str, project_root: &Path) -> Result<PathBuf, String> {
+pub fn create_profile(name: &str, project_root: &Path) -> anyhow::Result<PathBuf> {
     if name == "default" || name == "local" || !is_valid_profile_name(name) {
-        return Err(format!("Invalid profile name: {}", name));
+        anyhow::bail!("Invalid profile name: {}", name);
     }
     let filename = format!("_projr-{}.yml", name);
     let path = project_root.join(filename);
     if path.exists() {
-        return Err(format!("Profile {} already exists", name));
+        anyhow::bail!("Profile {} already exists", name);
     }
-    fs::write(&path, "").map_err(|e| e.to_string())?;
+    fs::write(&path, "")?;
     Ok(path)
 }
 
@@ -55,40 +55,40 @@ fn nullify_values(val: &mut Value) {
 }
 
 /// Scans the baseline `_proj.yml` structure and clones its layout into `_projr-local.yml` with all assignments mapped to null.
-pub fn create_local_profile(project_root: &Path) -> Result<PathBuf, String> {
+pub fn create_local_profile(project_root: &Path) -> anyhow::Result<PathBuf> {
     let baseline_path = project_root.join("_proj.yml");
     let local_path = project_root.join("_projr-local.yml");
 
     if local_path.exists() {
-        return Err("Local profile _projr-local.yml already exists".to_string());
+        anyhow::bail!("Local profile _projr-local.yml already exists");
     }
 
     if baseline_path.exists() {
-        let content = fs::read_to_string(&baseline_path).map_err(|e| e.to_string())?;
-        let yaml_value: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+        let content = fs::read_to_string(&baseline_path)?;
+        let yaml_value: serde_yaml::Value = serde_yaml::from_str(&content)?;
 
         // Convert to serde_json::Value for processing
-        let mut json_value: serde_json::Value = serde_json::to_value(yaml_value).map_err(|e| e.to_string())?;
+        let mut json_value: serde_json::Value = serde_json::to_value(yaml_value)?;
         nullify_values(&mut json_value);
 
-        let out_yaml: serde_yaml::Value = serde_json::from_value(json_value).map_err(|e| e.to_string())?;
-        let out_str = serde_yaml::to_string(&out_yaml).map_err(|e| e.to_string())?;
-        fs::write(&local_path, out_str).map_err(|e| e.to_string())?;
+        let out_yaml: serde_yaml::Value = serde_json::from_value(json_value)?;
+        let out_str = serde_yaml::to_string(&out_yaml)?;
+        fs::write(&local_path, out_str)?;
     } else {
-        fs::write(&local_path, "").map_err(|e| e.to_string())?;
+        fs::write(&local_path, "")?;
     }
 
     Ok(local_path)
 }
 
 /// Permanently deletes the matching config node.
-pub fn delete_profile(name: &str, project_root: &Path) -> Result<(), String> {
+pub fn delete_profile(name: &str, project_root: &Path) -> anyhow::Result<()> {
     let filename = format!("_projr-{}.yml", name);
     let path = project_root.join(filename);
     if path.exists() {
-        fs::remove_file(path).map_err(|e| e.to_string())?;
+        fs::remove_file(path)?;
         Ok(())
     } else {
-        Err(format!("Profile {} does not exist", name))
+        anyhow::bail!("Profile {} does not exist", name);
     }
 }

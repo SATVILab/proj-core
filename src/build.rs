@@ -62,7 +62,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     // ==========================================
     // STEP A: Activate Environment Guard
     // ==========================================
-    let _env_guard = crate::env::EnvGuard::activate(cli_profile, project_root)?;
+    let _env_guard = crate::env::EnvGuard::activate(cli_profile, project_root).map_err(|e| format!("{:#}", e))?;
 
     // ==========================================
     // STEP B: Pre-Build Validation & Execution
@@ -205,7 +205,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
                 found_ver.ok_or_else(|| "Could not extract a valid Version from DESCRIPTION file.".to_string())?
             } else {
                 let v = crate::version::ProjVersion { major: 0, minor: 0, patch: 1, dev: 0 };
-                version_set_at(project_root, &v.to_string(true))?;
+                version_set_at(project_root, &v.to_string(true)).map_err(|e| format!("{:#}", e))?;
                 v
             }
         }
@@ -225,7 +225,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     if is_dev {
         if initial_version.dev == 0 {
             initial_version.dev = 1;
-            version_set_at(project_root, &initial_version.to_string(false))?;
+            version_set_at(project_root, &initial_version.to_string(false)).map_err(|e| format!("{:#}", e))?;
         }
     } else {
         match mode {
@@ -246,7 +246,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
             }
             _ => {}
         }
-        version_set_at(project_root, &initial_version.to_string(false))?;
+        version_set_at(project_root, &initial_version.to_string(false)).map_err(|e| format!("{:#}", e))?;
     }
 
     // 6. Git auto-ignore (already handled in yml_read_from via update_ignores)

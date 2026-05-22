@@ -115,7 +115,7 @@ impl EnvGuard {
     }
 
     /// Commences an environment block, parsing profiles and backing up state.
-    pub fn activate(explicit_profile: Option<&str>, base_dir: &Path) -> Result<Self, String> {
+    pub fn activate(explicit_profile: Option<&str>, base_dir: &Path) -> anyhow::Result<Self> {
         let mut guard = Self::new();
 
         // Temporarily handle PROJR_PROFILE swap if explicitly overridden for this build run
@@ -184,10 +184,10 @@ impl EnvGuard {
                     };
 
                     if !key.is_empty() && std::env::var(&key).is_err() {
-                        return Err(format!(
+                        anyhow::bail!(
                             "Error: Required environment variable '{}' is missing from the environment.",
                             key
-                        ));
+                        );
                     }
                 }
             }

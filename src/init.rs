@@ -119,7 +119,7 @@ pub fn init_version() -> Result<(), String> {
         }
 
         println!("Initializing VERSION file with {}", initial_version);
-        version_set(&initial_version)?;
+        version_set(&initial_version).map_err(|e| format!("{:#}", e))?;
     } else {
         println!("VERSION file already exists. Skipping.");
     }
