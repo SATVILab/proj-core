@@ -163,7 +163,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: windows-dist
-          path: ${{ env.TEMP }}/fake-release
+          path: fake-release
 
       - name: Run install.ps1 script execution pass
         shell: pwsh
@@ -171,8 +171,8 @@ jobs:
           $installDir = Join-Path $env:USERPROFILE ".local\bin"
           New-Item -ItemType Directory -Path $installDir -Force | Out-Null
           $env:Path = "$installDir;$env:Path"
-          $fakeRelease = Join-Path $env:TEMP "fake-release"
-          $env:PROJ_DOWNLOAD_BASE_URL = "file:///$($fakeRelease -replace '\\', '/')"
+          $fakeRelease = Resolve-Path "fake-release"
+          $env:PROJ_DOWNLOAD_BASE_URL = "file:///$($fakeRelease.Path -replace '\\', '/')"
           .\install.ps1
           Write-Host "Windows manual installation script pass complete"
 
