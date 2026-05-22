@@ -5,7 +5,9 @@
 - You MUST NOT modify, manipulate, delete, or rename any files or folders inside the `_reference` directory. All new implementation code must live in the root package structure (e.g., `src/`, `Cargo.toml`).
 
 ## 2. Compilation Compatibility & Crate Selection
-- We ultimately want this project wrapped as native Python and R language modules (via tools like `extendr` and `PyO3`). 
+- **Decoupled Architecture:** `proj-core` is fundamentally architected as a decoupled, standalone CLI tool executed from R (via `projr`) through process delegation, rather than utilizing in-memory embedded bindings like `extendr`. This structural boundary ensures that the Rust execution context is strictly isolated from R's single-threaded runtime constraint.
+- **Performance & Isolation Advantages:** This process separation enables stable, uninhibited multi-threaded workspace sweeps (utilizing `blake3` parallel hashing), guarantees frictionless CRAN check server validation passes by avoiding complex dynamic library linking, and provides isolated execution process spaces protecting both runtimes.
+- **Handoff Protocol:** To prevent environment pollution from the active R session, the R wrapper (`projr`) implements a strict handoff protocol. It strips active runtime variables and passes down a completely clean environment canvas to the CLI execution context, preserving only an explicit whitelist (e.g., `PATH` and `HOME`) paired with the live R library path forwarded explicitly through the `R_LIBS` key.
 - CRAN and enterprise environments (like Debian Stable or RHEL) enforce rigid, older compiler architectures. 
 - Use stable, mature, and widely compatible crates (e.g., standard `serde`, `serde_yaml`, `clap`, `regex`) rather than bleeding-edge alternatives. Avoid unnecessary external dependencies to minimize compilation friction on older toolchains.
 
