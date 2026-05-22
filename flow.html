@@ -233,7 +233,7 @@ ul.task-list li input[type="checkbox"] {
 <p>The pre-build stage focuses on validation, environment auditing, and preparing the workspace state prior to executing any project code.</p>
 <section id="config-audit" class="level3">
 <h3 class="anchored" data-anchor-id="config-audit">1.1 Config Audit</h3>
-<p>The <code>_proj.yml</code> configuration is parsed and validated based on the execution mode (development vs.&nbsp;production).</p>
+<p>The <code>_proj.yml</code> configuration is parsed and validated based on the execution mode (development vs.&nbsp;production). The configuration audit also strictly evaluates arbitrary nested keys inside the <code>parameters</code> block and throws a validation error if multiple aliases (<code>parameter</code>, <code>params</code>, <code>param</code>) are found to prevent mapping conflicts.</p>
 </section>
 <section id="git-capability-audit" class="level3">
 <h3 class="anchored" data-anchor-id="git-capability-audit">1.2 Git Capability Audit</h3>

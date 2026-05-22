@@ -207,7 +207,7 @@ ul.task-list li input[type="checkbox"] {
 <h2 class="anchored" data-anchor-id="reading-parameters-and-defaults">Reading Parameters and Defaults</h2>
 <p>When <code>proj yml get</code> is executed, the tool automatically resolves parameters and defaults from the file.</p>
 <ol type="1">
-<li><strong>Parameter Resolution:</strong> It scans the explicitly provided configurations. If you defined custom directory labels mapped to absolute or relative paths, it retrieves them directly.</li>
+<li><strong>Parameter Resolution:</strong> It scans explicitly provided configurations. If you defined custom directory labels mapped to absolute or relative paths, it retrieves them directly. It also resolves arbitrary deeply nested variables configured under the <code>parameters</code> block. If missing, an empty <code>parameters</code> block is automatically injected into the file. The tool actively protects against alias conflicts (e.g., combining <code>parameters</code> and <code>params</code> blocks simultaneously).</li>
 <li><strong>Dynamic Injections:</strong> Missing path parameters under valid foundational prefixes will automatically receive their default injection (e.g., an empty <code>cache</code> block resolves to the path <code>_tmp</code>).</li>
 <li><strong>Implicit Base Defaults:</strong> Foundational prefixes that are not explicitly stated in the configuration will be seamlessly injected as default base targets during execution.</li>
 <li><strong>Ignore Synchronization:</strong> Reading the YAML file naturally triggers the ignore demarcation engine, applying standard ignore behaviors to <code>.gitignore</code> and <code>.Rbuildignore</code> dynamically based on the verified settings.</li>

@@ -193,6 +193,7 @@ ul.task-list li input[type="checkbox"] {
   <li><a href="#default-fallback-injections" id="toc-default-fallback-injections" class="nav-link" data-scroll-target="#default-fallback-injections">Default Fallback Injections</a></li>
   <li><a href="#strict-validation-error-behaviors" id="toc-strict-validation-error-behaviors" class="nav-link" data-scroll-target="#strict-validation-error-behaviors">Strict Validation Error Behaviors</a></li>
   <li><a href="#top-level-configuration" id="toc-top-level-configuration" class="nav-link" data-scroll-target="#top-level-configuration">Top-Level Configuration</a></li>
+  <li><a href="#parameters-configuration" id="toc-parameters-configuration" class="nav-link" data-scroll-target="#parameters-configuration">Parameters Configuration</a></li>
   <li><a href="#remotes-configuration" id="toc-remotes-configuration" class="nav-link" data-scroll-target="#remotes-configuration">Remotes Configuration</a></li>
   <li><a href="#build-configuration" id="toc-build-configuration" class="nav-link" data-scroll-target="#build-configuration">Build Configuration</a></li>
   <li><a href="#development-overrides" id="toc-development-overrides" class="nav-link" data-scroll-target="#development-overrides">Development Overrides</a></li>
@@ -231,6 +232,11 @@ ul.task-list li input[type="checkbox"] {
 <li><strong><code>config.git.engine</code></strong>: The Git execution engine to use. Can be <code>auto</code> (default) or <code>system</code>. This determines how the CLI interfaces with Git capabilities natively.</li>
 <li><strong><code>config.git.use_proj_cred_helper</code></strong>: Boolean (defaults to <code>true</code>). Enables the project’s internal GitHub token discovery and credential injection for required remote Git operations. It evaluates sources in strict order (Environment variables <code>GITHUB_PAT</code>/<code>GH_TOKEN</code>/<code>GITHUB_TOKEN</code>, system Git credential helper, and GitHub CLI) to securely override credentials per-command and prevent freezing on interactive prompts.</li>
 </ul>
+</section>
+<section id="parameters-configuration" class="level2">
+<h2 class="anchored" data-anchor-id="parameters-configuration">Parameters Configuration</h2>
+<p>The <code>_proj.yml</code> file supports a top-level <code>parameters</code> block for arbitrary nested parameter evaluation. This allows you to define custom metadata and deeply queried values throughout your execution environment.</p>
+<p>The configuration engine also supports several aliases for this block: <code>parameter</code>, <code>params</code>, and <code>param</code>. However, <strong>multiple alias conflicts within the same configuration file are structurally rejected during validation</strong> to prevent mapping confusion.</p>
 </section>
 <section id="remotes-configuration" class="level2">
 <h2 class="anchored" data-anchor-id="remotes-configuration">Remotes Configuration</h2>
