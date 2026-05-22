@@ -520,7 +520,7 @@ dependencies = [
 
 [[package]]
 name = "proj"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "blake3",
  "chrono",
