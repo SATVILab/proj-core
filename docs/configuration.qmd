@@ -32,12 +32,25 @@ The system performs strict validation on `_proj.yml`:
 
 The `_proj.yml` file supports a top-level `config` block for project-wide settings:
 
+- **`config.git.engine`**: The Git execution engine to use. Can be `auto` (default) or `system`. This determines how the CLI interfaces with Git capabilities natively.
 - **`config.git.use_proj_cred_helper`**: Boolean (defaults to `true`). Enables the project's internal GitHub token discovery and credential injection for required remote Git operations. It evaluates sources in strict order (Environment variables `GITHUB_PAT`/`GH_TOKEN`/`GITHUB_TOKEN`, system Git credential helper, and GitHub CLI) to securely override credentials per-command and prevent freezing on interactive prompts.
+
+
+## Remotes Configuration
+
+The `_proj.yml` file supports a top-level `remotes` block, which currently supports a `local` mapping of standalone storage vaults.
+
+- **`local`**: A mapping where keys represent remote titles and values configure the vault:
+  - **`path`**: The physical absolute or relative path to the remote storage directory.
+  - **`structure`**: Specifies the storage structure algorithm. Must be `cas` (Content-Addressable Storage).
+  - **`content`**: An array of string tags (matching foundational prefixes or defined directories) specifying which project output directories to sync into the remote upon build completion.
+  - **`inspect`**: Specifies the structural integrity verification strategy (`manifest` or `file`).
 
 ## Build Configuration
 
 The `_proj.yml` file can also contain a `build` block to configure the behavior of the `proj build` and `proj build-dev` execution engine. The `build` block supports the following sub-keys:
 
+- **`dest`**: An optional list of remote target strings. These targets must be mapped to explicit configurations within the `remotes.local` block. During post-build execution, resolved content directories matching these tags are piped to the CAS engine for deduplicated storage synchronization.
 - **`scripts`**: An optional list of explicit script paths or glob patterns to execute during the build pipeline.
   - Globbing patterns are supported.
   - Prefix a pattern with `!` to exclude matching files from execution.

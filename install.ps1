@@ -95,7 +95,8 @@ $tmpFile = Join-Path ([System.IO.Path]::GetTempPath()) "$binaryName-$PID.exe"
 
 $assets = @(
     "${binaryName}_${osName}_${archName}.exe",
-    "${binaryName}-${osName}-${archName}.exe"
+    "${binaryName}-${osName}-${archName}.exe",
+    "${binaryName}.exe"
 )
 
 function Invoke-DownloadAsset([string]$Url, [string]$OutFile) {
@@ -106,6 +107,10 @@ function Invoke-DownloadAsset([string]$Url, [string]$OutFile) {
         if ($localPath -match "^([A-Za-z]):\\") { }
         elseif ($localPath -match "^([A-Za-z]):") { $localPath = $localPath -replace "^([A-Za-z]):", "`$1:`\" }
         $localPath = $localPath -replace "/", "\"
+        $localPath = $Matches[1] -replace '/', [System.IO.Path]::DirectorySeparatorChar
+        if (-not (Test-Path -LiteralPath $localPath)) {
+            throw "does not exist: $localPath"
+        }
         Copy-Item -LiteralPath $localPath -Destination $OutFile -Force
         return
     }
@@ -126,7 +131,7 @@ foreach ($asset in $assets) {
             $statusCode = [int]$_.Exception.Response.StatusCode
         }
         $message = $_.Exception.Message
-        if ($statusCode -eq 404 -or $message -match '404') {
+        if ($statusCode -eq 404 -or $message -match '404' -or $message -match 'does not exist') {
             Write-Warning "Asset ${asset} not found at ${url}"
             continue
         }

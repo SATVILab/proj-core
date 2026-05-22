@@ -85,6 +85,7 @@ echo "Install directory: ${INSTALL_DIR}"
 ASSET_CANDIDATES=(
   "${BINARY_NAME}_${OS_NAME}_${ARCH_NAME}"
   "${BINARY_NAME}-${OS_NAME}-${ARCH_NAME}"
+  "${BINARY_NAME}"
 )
 
 TMP_BIN="$(mktemp "${TMPDIR:-/tmp}/proj-install.XXXXXX")"
@@ -95,9 +96,20 @@ DOWNLOADED_ASSET=""
 for asset in "${ASSET_CANDIDATES[@]}"; do
   url="${DOWNLOAD_BASE_URL}/${asset}"
   echo "Trying ${url}..."
-  if curl -fsSL "$url" -o "$TMP_BIN"; then
-    DOWNLOADED_ASSET="$asset"
-    break
+
+  if [[ "$url" == file:///* ]]; then
+    local_path="${url#file:///}"
+    local_path="/${local_path}"
+    if [ -f "$local_path" ]; then
+      cp "$local_path" "$TMP_BIN"
+      DOWNLOADED_ASSET="$asset"
+      break
+    fi
+  else
+    if curl -fsSL "$url" -o "$TMP_BIN"; then
+      DOWNLOADED_ASSET="$asset"
+      break
+    fi
   fi
 done
 
