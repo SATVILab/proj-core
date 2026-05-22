@@ -105,7 +105,7 @@ function Invoke-DownloadAsset([string]$Url, [string]$OutFile) {
         # letters (e.g. file:///C:/path → C:\path) cleanly with URI unescaping.
         $localPath = [uri]::UnescapeDataString($Matches[1]) -replace '/', [System.IO.Path]::DirectorySeparatorChar
         if ($localPath -match "^([A-Za-z]):\\") { }
-        elseif ($localPath -match "^([A-Za-z]):") { $localPath = $localPath -replace "^([A-Za-z]):", "`$1:`\" }
+        elseif ($localPath -match "^([A-Za-z]):") { $localPath = $localPath -replace "^([A-Za-z]):", "`$1:\" }
         
         if (-not (Test-Path -LiteralPath $localPath)) {
             throw "Local tracking source file does not exist: $localPath"

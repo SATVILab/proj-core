@@ -65,7 +65,7 @@ impl Default for IgnoreType {
 ///
 /// assert!(root.join(".gitignore").exists());
 /// ```
-pub fn update_ignores_for(project_root: &std::path::Path, validated: &ValidatedConfig) -> Result<(), String> {
+pub fn update_ignores_for(project_root: &std::path::Path, validated: &ValidatedConfig) -> anyhow::Result<()> {
     let mut git_ignores = Vec::new();
     let mut rbuild_ignores = Vec::new();
 
@@ -129,13 +129,12 @@ pub fn update_ignores_for(project_root: &std::path::Path, validated: &ValidatedC
     Ok(())
 }
 
-fn update_ignore_file(path: &std::path::Path, ignores: &[String]) -> Result<(), String> {
+fn update_ignore_file(path: &std::path::Path, ignores: &[String]) -> anyhow::Result<()> {
     let start_marker = "# --- PROJ MANAGED ---";
     let end_marker = "# --- END PROJ MANAGED ---";
 
     let content_lines: Vec<String> = if path.exists() {
-        fs::read_to_string(path)
-            .map_err(|e| e.to_string())?
+        fs::read_to_string(path)?
             .lines()
             .map(|s| s.to_string())
             .collect()
@@ -188,7 +187,8 @@ fn update_ignore_file(path: &std::path::Path, ignores: &[String]) -> Result<(), 
         }
     }
 
-    fs::write(path, final_content).map_err(|e| e.to_string())
+    fs::write(path, final_content)?;
+    Ok(())
 }
 
 /// Discovers the conceptual project root directory via heuristic path traversal.
@@ -280,7 +280,7 @@ pub fn root() -> Option<PathBuf> {
 /// use proj::ignore::update_ignores;
 /// update_ignores(project_root, validated_config).unwrap();
 /// ```
-pub fn update_ignores(project_root: &std::path::Path, validated: &ValidatedConfig) -> Result<(), String> {
+pub fn update_ignores(project_root: &std::path::Path, validated: &ValidatedConfig) -> anyhow::Result<()> {
     update_ignores_for(project_root, validated)
 }
 
@@ -347,7 +347,7 @@ fn format_unignore_rbuildignore_path(path_str: &str, is_dir: bool) -> Vec<String
 ///
 /// Modifies the ignore file by appending user-specified manual exclusions
 /// strictly above the `# --- PROJ MANAGED ---` block, ensuring separating whitespace.
-fn append_manual_ignores(path: &std::path::Path, ignores: &[String]) -> Result<(), String> {
+fn append_manual_ignores(path: &std::path::Path, ignores: &[String]) -> anyhow::Result<()> {
     if ignores.is_empty() {
         return Ok(());
     }
@@ -355,8 +355,7 @@ fn append_manual_ignores(path: &std::path::Path, ignores: &[String]) -> Result<(
     let start_marker = "# --- PROJ MANAGED ---";
 
     let content_lines: Vec<String> = if path.exists() {
-        fs::read_to_string(path)
-            .map_err(|e| e.to_string())?
+        fs::read_to_string(path)?
             .lines()
             .map(|s| s.to_string())
             .collect()
@@ -421,14 +420,15 @@ fn append_manual_ignores(path: &std::path::Path, ignores: &[String]) -> Result<(
         final_content.push('\n');
     }
 
-    fs::write(path, final_content).map_err(|e| e.to_string())
+    fs::write(path, final_content)?;
+    Ok(())
 }
 
 /// Appends unignore (negated) entries to an ignore file strictly below the managed block.
 ///
 /// Modifies the ignore file by appending user-specified manual negations
 /// strictly below the `# --- END PROJ MANAGED ---` block.
-fn append_unignores(path: &std::path::Path, ignores: &[String]) -> Result<(), String> {
+fn append_unignores(path: &std::path::Path, ignores: &[String]) -> anyhow::Result<()> {
     if ignores.is_empty() {
         return Ok(());
     }
@@ -437,8 +437,7 @@ fn append_unignores(path: &std::path::Path, ignores: &[String]) -> Result<(), St
     let end_marker = "# --- END PROJ MANAGED ---";
 
     let content_lines: Vec<String> = if path.exists() {
-        fs::read_to_string(path)
-            .map_err(|e| e.to_string())?
+        fs::read_to_string(path)?
             .lines()
             .map(|s| s.to_string())
             .collect()
@@ -510,7 +509,8 @@ fn append_unignores(path: &std::path::Path, ignores: &[String]) -> Result<(), St
         final_content.push('\n');
     }
 
-    fs::write(path, final_content).map_err(|e| e.to_string())
+    fs::write(path, final_content)?;
+    Ok(())
 }
 
 
@@ -547,7 +547,7 @@ pub fn add_manual_ignores(
     paths: &[String],
     force_create: bool,
     ignore_type: IgnoreType
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let mut git_ignores = Vec::new();
     let mut rbuild_ignores = Vec::new();
 
@@ -621,7 +621,7 @@ pub fn remove_manual_ignores(
     project_root: &std::path::Path,
     paths: &[String],
     ignore_type: IgnoreType
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let mut git_ignores = Vec::new();
     let mut rbuild_ignores = Vec::new();
 
