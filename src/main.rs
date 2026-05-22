@@ -35,6 +35,11 @@ pub struct Cli {
 /// ```
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Init related operations
+    Init {
+        #[command(subcommand)]
+        command: Option<InitCommands>,
+    },
     /// YML related operations
     Yml {
         #[command(subcommand)]
@@ -303,6 +308,43 @@ fn main() {
                 }
             }
         },
+        Commands::Init { command } => match command {
+            Some(InitCommands::Version) => {
+                if let Err(e) = proj::init_version() {
+                    eprintln!("Initialization failed: {}", e);
+                }
+            }
+            Some(InitCommands::Directories) => {
+                if let Err(e) = proj::init_directories() {
+                    eprintln!("Initialization failed: {}", e);
+                }
+            }
+            Some(InitCommands::Readme { title, description }) => {
+                if let Err(e) = proj::init_readme(title.clone(), description.clone()) {
+                    eprintln!("Initialization failed: {}", e);
+                }
+            }
+            Some(InitCommands::License { license, first_name, last_name }) => {
+                if let Err(e) = proj::init_license(license.clone(), first_name.clone(), last_name.clone()) {
+                    eprintln!("Initialization failed: {}", e);
+                }
+            }
+            Some(InitCommands::Git { commit }) => {
+                if let Err(e) = proj::init_git(*commit) {
+                    eprintln!("Initialization failed: {}", e);
+                }
+            }
+            Some(InitCommands::Github { public }) => {
+                if let Err(e) = proj::init_github(*public) {
+                    eprintln!("Initialization failed: {}", e);
+                }
+            }
+            None => {
+                if let Err(e) = proj::init_full() {
+                    eprintln!("Initialization failed: {}", e);
+                }
+            }
+        },
         Commands::Version { command } => match command {
             VersionCommands::Get { no_v, format } => {
                 if let Some(version) = proj::version_get() {
@@ -326,4 +368,55 @@ fn main() {
             }
         },
     }
+}
+
+/// Operations for initializing a project.
+///
+/// Sets up the project structure, versions, git, github, etc.
+///
+/// # Errors
+///
+/// May fail if an initialization step encounters an error (e.g., IO, permission).
+/// ```rust
+/// // use proj::InitCommands;
+/// ```
+#[derive(Subcommand)]
+pub enum InitCommands {
+    /// Initialize version
+    Version,
+    /// Initialize directories
+    Directories,
+    /// Initialize README
+    Readme {
+        /// Project Title
+        #[arg(long)]
+        title: Option<String>,
+        /// Project Description
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// Initialize License
+    License {
+        /// License type (ccby, apache, cc0, proprietary)
+        #[arg(long)]
+        license: Option<String>,
+        /// First name (for proprietary)
+        #[arg(long)]
+        first_name: Option<String>,
+        /// Last name (for proprietary)
+        #[arg(long)]
+        last_name: Option<String>,
+    },
+    /// Initialize Git
+    Git {
+        /// Whether to commit initial changes
+        #[arg(long)]
+        commit: Option<bool>,
+    },
+    /// Initialize GitHub
+    Github {
+        /// Make repository public (default is private)
+        #[arg(long)]
+        public: Option<bool>,
+    },
 }
