@@ -36,6 +36,12 @@ The `_proj.yml` file supports a top-level `config` block for project-wide settin
 - **`config.git.use_proj_cred_helper`**: Boolean (defaults to `true`). Enables the project's internal GitHub token discovery and credential injection for required remote Git operations. It evaluates sources in strict order (Environment variables `GITHUB_PAT`/`GH_TOKEN`/`GITHUB_TOKEN`, system Git credential helper, and GitHub CLI) to securely override credentials per-command and prevent freezing on interactive prompts.
 
 
+## Parameters Configuration
+
+The `_proj.yml` file supports a top-level `parameters` block for arbitrary nested parameter evaluation. This allows you to define custom metadata and deeply queried values throughout your execution environment.
+
+The configuration engine also supports several aliases for this block: `parameter`, `params`, and `param`. However, **multiple alias conflicts within the same configuration file are structurally rejected during validation** to prevent mapping confusion.
+
 ## Remotes Configuration
 
 The `_proj.yml` file supports a top-level `remotes` block, which currently supports a `local` mapping of standalone storage vaults.
