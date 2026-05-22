@@ -20,3 +20,4 @@ jobs:
         uses: MiguelRodo/actions/publish-quarto-site@v2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          path: docs

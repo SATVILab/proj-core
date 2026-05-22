@@ -26,7 +26,7 @@ jobs:
       - name: Enable Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      # Installs cargo-deb via pre-compiled binary instead of building from source
+      # Installs cargo-deb via cargo install
       - name: Install cargo-deb quickly
         run: |
           cargo install cargo-deb
