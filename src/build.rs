@@ -839,64 +839,6 @@ pub(crate) fn resolve_fallback_scripts(project_root: &Path) -> Result<Vec<PathBu
 }
 
 use std::process::Command;
-
-pub fn dir_move_exact(source: &Path, dest: &Path) -> Result<(), String> {
-    if !source.exists() {
-        return Ok(());
-    }
-
-    if dest.exists() {
-        // Clear destination except protected files
-        if dest.is_dir() {
-            if let Ok(entries) = fs::read_dir(dest) {
-                for entry in entries.flatten() {
-                    let name = entry.file_name();
-                    let name_str = name.to_string_lossy();
-                    // Protected File Exclusion Guard
-                    if name_str == "CHANGELOG.md" || name_str == ".gitignore" || name_str == "README.md" {
-                        continue;
-                    }
-                    if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
-                        let _ = fs::remove_dir_all(entry.path());
-                    } else {
-                        let _ = fs::remove_file(entry.path());
-                    }
-                }
-            }
-        }
-    } else {
-        let _ = fs::create_dir_all(dest);
-    }
-
-    // Now copy everything from source to dest
-    copy_dir_recursive(source, dest).map_err(|e| format!("Failed to copy directory from {} to {}: {}", source.display(), dest.display(), e))?;
-    let _ = fs::remove_dir_all(source);
-
-    Ok(())
-}
-
-fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
-    if !src.exists() {
-        return Ok(());
-    }
-    if !dst.exists() {
-        fs::create_dir_all(dst)?;
-    }
-
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let ty = entry.file_type()?;
-        let dest_path = dst.join(entry.file_name());
-
-        if ty.is_dir() {
-            copy_dir_recursive(&entry.path(), &dest_path)?;
-        } else {
-            fs::copy(entry.path(), dest_path)?;
-        }
-    }
-    Ok(())
-}
-
 pub fn copy_individual_rmd(file_path: &Path, docs_path: &Path, project_root: &Path) -> Result<(), String> {
     let content = fs::read_to_string(file_path).unwrap_or_default();
     let (format, output_file) = crate::build_pre::parse_frontmatter_options(&content);
@@ -927,7 +869,7 @@ pub fn copy_individual_rmd(file_path: &Path, docs_path: &Path, project_root: &Pa
 
     if files_dir.exists() {
         let dest_files_dir = docs_path.join(&files_dir_name);
-        dir_move_exact(&files_dir, &dest_files_dir)?;
+        crate::fs_utils::dir_move_exact(&files_dir, &dest_files_dir).map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -962,14 +904,14 @@ pub fn copy_individual_quarto(file_path: &Path, docs_path: &Path, project_root: 
 
     if files_dir.exists() {
         let dest_files_dir = docs_path.join(&files_dir_name);
-        dir_move_exact(&files_dir, &dest_files_dir)?;
+        crate::fs_utils::dir_move_exact(&files_dir, &dest_files_dir).map_err(|e| e.to_string())?;
     }
 
     Ok(())
 }
 
 pub fn copy_global_bookdown(cache_docs_dir: &Path, final_docs_dir: &Path, project_root: &Path) -> Result<(), String> {
-    dir_move_exact(cache_docs_dir, final_docs_dir)?;
+    crate::fs_utils::dir_move_exact(cache_docs_dir, final_docs_dir).map_err(|e| e.to_string())?;
 
     // We also need to locate <book_filename>_files and move to final target context.
     // _bookdown.yml specifies book_filename, defaulting to _main
@@ -990,14 +932,14 @@ pub fn copy_global_bookdown(cache_docs_dir: &Path, final_docs_dir: &Path, projec
     let files_dir = project_root.join(&files_dir_name);
     if files_dir.exists() {
         let dest_files_dir = final_docs_dir.join(&files_dir_name);
-        dir_move_exact(&files_dir, &dest_files_dir)?;
+        crate::fs_utils::dir_move_exact(&files_dir, &dest_files_dir).map_err(|e| e.to_string())?;
     }
 
     Ok(())
 }
 
 pub fn copy_global_quarto_project(cache_docs_dir: &Path, final_docs_dir: &Path) -> Result<(), String> {
-    dir_move_exact(cache_docs_dir, final_docs_dir)
+    crate::fs_utils::dir_move_exact(cache_docs_dir, final_docs_dir).map_err(|e| e.to_string())
 }
 
 /// Executes a single script in an isolated subprocess.

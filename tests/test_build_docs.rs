@@ -1,7 +1,8 @@
 use std::fs;
 use tempfile::tempdir;
 
-use proj::build::{dir_move_exact, copy_individual_rmd, copy_individual_quarto};
+use proj::build::{copy_individual_rmd, copy_individual_quarto};
+use proj::fs_utils::dir_move_exact;
 
 #[test]
 fn test_dir_move_exact_protects_files() {

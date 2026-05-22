@@ -1,3 +1,4 @@
+pub mod fs_utils;
 pub mod init;
 pub mod version;
 pub mod yml;
@@ -21,3 +22,4 @@ pub use clear::*;
 pub use cas::*;
 pub use init::*;
 pub use env::*;
+pub use fs_utils::*;
