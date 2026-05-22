@@ -418,10 +418,10 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
                                 if let Ok(dir_path) = config.get_path(project_root, tag) {
                                     if dir_path.exists() {
                                         crate::cas::ingest_directory(
-                                            project_root,
-                                            &remote.path,
+                                            camino::Utf8Path::from_path(project_root).ok_or_else(|| format!("Invalid utf8 path"))?,
+                                            camino::Utf8Path::from_path(&remote.path).ok_or_else(|| format!("Invalid utf8 path"))?,
                                             tag,
-                                            &dir_path,
+                                            camino::Utf8Path::from_path(&dir_path).ok_or_else(|| format!("Invalid utf8 path"))?,
                                             &initial_version.to_string(false)
                                         ).map_err(|e| format!("Failed remote CAS export for {}: {}", tag, e))?;
                                     }
