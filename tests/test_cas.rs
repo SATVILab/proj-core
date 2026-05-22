@@ -11,11 +11,11 @@ fn test_cas_integration_deduplication() {
     let project_root = root.path().join("proj");
     let cas_remote_root = root.path().join("cas");
 
-    fs::create_dir_all(&project_root).unwrap();
-    fs::create_dir_all(&cas_remote_root).unwrap();
+    fs::create_dir_all(camino::Utf8Path::from_path(&project_root).unwrap()).unwrap();
+    fs::create_dir_all(camino::Utf8Path::from_path(&cas_remote_root).unwrap()).unwrap();
 
     let source_dir = project_root.join("data").join("raw");
-    fs::create_dir_all(&source_dir).unwrap();
+    fs::create_dir_all(camino::Utf8Path::from_path(&source_dir).unwrap()).unwrap();
 
     // Create initial files
     fs::write(source_dir.join("file1.txt"), "content A").unwrap();
@@ -23,10 +23,10 @@ fn test_cas_integration_deduplication() {
 
     // Pass 1: Ingest version 1.0.0
     ingest_directory(
-        &project_root,
-        &cas_remote_root,
+        camino::Utf8Path::from_path(&project_root).unwrap(),
+        camino::Utf8Path::from_path(&cas_remote_root).unwrap(),
         "raw",
-        &source_dir,
+        camino::Utf8Path::from_path(&source_dir).unwrap(),
         "1.0.0"
     ).unwrap();
 
@@ -42,10 +42,10 @@ fn test_cas_integration_deduplication() {
 
     // Pass 2: Ingest version 2.0.0 (duplicate files)
     ingest_directory(
-        &project_root,
-        &cas_remote_root,
+        camino::Utf8Path::from_path(&project_root).unwrap(),
+        camino::Utf8Path::from_path(&cas_remote_root).unwrap(),
         "raw",
-        &source_dir,
+        camino::Utf8Path::from_path(&source_dir).unwrap(),
         "2.0.0"
     ).unwrap();
 
@@ -62,10 +62,10 @@ fn test_cas_integration_deduplication() {
     fs::write(source_dir.join("file2.txt"), "content B modified").unwrap();
 
     ingest_directory(
-        &project_root,
-        &cas_remote_root,
+        camino::Utf8Path::from_path(&project_root).unwrap(),
+        camino::Utf8Path::from_path(&cas_remote_root).unwrap(),
         "raw",
-        &source_dir,
+        camino::Utf8Path::from_path(&source_dir).unwrap(),
         "3.0.0"
     ).unwrap();
 
@@ -117,17 +117,17 @@ fn test_verify_remote_integrity() {
     let root = tempdir().unwrap();
     let cas_remote_root = root.path().join("cas");
     let project_root = root.path().join("proj");
-    fs::create_dir_all(&project_root).unwrap();
-    fs::create_dir_all(&cas_remote_root).unwrap();
+    fs::create_dir_all(camino::Utf8Path::from_path(&project_root).unwrap()).unwrap();
+    fs::create_dir_all(camino::Utf8Path::from_path(&cas_remote_root).unwrap()).unwrap();
     let source_dir = project_root.join("data").join("raw");
-    fs::create_dir_all(&source_dir).unwrap();
+    fs::create_dir_all(camino::Utf8Path::from_path(&source_dir).unwrap()).unwrap();
     fs::write(source_dir.join("file1.txt"), "content A").unwrap();
 
     ingest_directory(
-        &project_root,
-        &cas_remote_root,
+        camino::Utf8Path::from_path(&project_root).unwrap(),
+        camino::Utf8Path::from_path(&cas_remote_root).unwrap(),
         "raw",
-        &source_dir,
+        camino::Utf8Path::from_path(&source_dir).unwrap(),
         "1.0.0"
     ).unwrap();
 
