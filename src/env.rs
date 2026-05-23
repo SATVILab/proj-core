@@ -148,7 +148,8 @@ impl EnvGuard {
                 if file == local_env_file {
                     // Automatically add _environment.local to ignores
                     let _ = crate::ignore::add_manual_ignores(
-                        base_dir.as_std_path(),
+                        // TODO: migrate to camino
+                        base_dir,
                         &["_environment.local".to_string()],
                         true,
                         crate::ignore::IgnoreType::All,

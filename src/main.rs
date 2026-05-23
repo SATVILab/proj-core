@@ -217,7 +217,8 @@ fn main() {
                 match proj::yml_read(false) {
                     Ok(config) => {
                         if let Some(root) = proj::root() {
-                            match config.get_path(&root, label) {
+                            // TODO: migrate to camino
+                    match config.get_path(root.as_std_path(), label) {
                                 Ok(path) => println!("{}", path.display()),
                                 Err(e) => eprintln!("Error getting path: {}", e),
                             }

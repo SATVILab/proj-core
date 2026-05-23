@@ -592,7 +592,8 @@ pub fn yml_read_from(project_root: &std::path::Path, is_dev: bool) -> Result<Val
     let combined_val = get_combined_yml(None, project_root)?;
     let config: ProjConfig = serde_json::from_value(combined_val).map_err(|e| e.to_string())?;
     let validated = config.validate_and_resolve(project_root, is_dev)?;
-    update_ignores(project_root, &validated).map_err(|e| format!("{:#}", e))?;
+    // TODO: migrate to camino
+    update_ignores(camino::Utf8Path::from_path(project_root).unwrap(), &validated).map_err(|e| format!("{:#}", e))?;
     Ok(validated)
 }
 
@@ -659,7 +660,8 @@ pub fn add_empty_parameters_block(project_root: &std::path::Path) -> Result<bool
 
 pub fn yml_read(is_dev: bool) -> Result<ValidatedConfig, String> {
     let project_root = root().ok_or("Could not find project root")?;
-    yml_read_from(&project_root, is_dev)
+    // TODO: migrate to camino
+    yml_read_from(project_root.as_std_path(), is_dev)
 }
 
 pub fn yml_get() -> String {

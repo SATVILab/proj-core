@@ -133,12 +133,14 @@ pub fn init_directories() -> Result<(), String> {
     // Read config to find resolved paths
     let config = yml_read(false).unwrap_or_else(|_| {
         let default_config = ProjConfig::default();
-        default_config.validate_and_resolve(&project_root, false).unwrap()
+        // TODO: migrate to camino
+        default_config.validate_and_resolve(project_root.as_std_path(), false).unwrap()
     });
 
     let default_labels = ["cache", "raw", "output", "docs"];
     for label in &default_labels {
-        if let Ok(dir_path) = config.get_path(&project_root, label) {
+        // TODO: migrate to camino
+        if let Ok(dir_path) = config.get_path(project_root.as_std_path(), label) {
             if !dir_path.exists() {
                 println!("Creating directory: {}", dir_path.display());
                 fs::create_dir_all(&dir_path).map_err(|e| format!("Failed to create {}: {}", label, e))?;
@@ -150,7 +152,7 @@ pub fn init_directories() -> Result<(), String> {
 
     let r_dir = project_root.join("R");
     if !r_dir.exists() {
-        println!("Creating directory: {}", r_dir.display());
+        println!("Creating directory: {}", r_dir);
         fs::create_dir_all(&r_dir).map_err(|e| format!("Failed to create R directory: {}", e))?;
     } else {
         println!("Directory already exists: R");
