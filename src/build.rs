@@ -37,14 +37,14 @@ pub enum BuildMode {
 /// // Create a dummy _proj.yml to avoid fallback searching which executes everything
 /// // We set push: false so we don't trigger GitHub token lookups in CI without env vars
 /// std::fs::write(temp.path().join("_proj.yml"), "build:\n  scripts: []\n  git:\n    commit: false\n    push: false\nconfig:\n  git:\n    use_proj_cred_helper: false").unwrap();
-/// build_project(temp.path(), BuildMode::ProdPatch, None, None).unwrap();
+/// build_project(camino::Utf8Path::from_path(temp.path()).unwrap(), BuildMode::ProdPatch, None, None).unwrap();
 /// ```
 use crate::git::{is_git_installed, check_git_profile, git_commit_all, create_git_provider};
 use crate::yml::{yml_read_from, GlobalConfig};
 use crate::build_pre::run_pre_flight_checks;
 
-pub fn post_build_sync(config: &GlobalConfig, repo_dir: PathBuf) -> Result<(), String> {
-    let provider = create_git_provider(config.git.engine, repo_dir)?;
+pub fn post_build_sync(config: &GlobalConfig, repo_dir: camino::Utf8PathBuf) -> Result<(), String> {
+    let provider = create_git_provider(config.git.engine, repo_dir.into_std_path_buf())?;
 
     println!("Staging build artifacts and committing mutations...");
     provider.commit_all("chore: automated workspace build update [compiled asset tracking]")?;
@@ -55,28 +55,28 @@ pub fn post_build_sync(config: &GlobalConfig, repo_dir: PathBuf) -> Result<(), S
     Ok(())
 }
 
-pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&str>, description: Option<&str>) -> Result<(), String> {
+pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profile: Option<&str>, description: Option<&str>) -> Result<(), String> {
     let is_dev = mode == BuildMode::Dev;
     let is_prod_run = matches!(mode, BuildMode::ProdMajor | BuildMode::ProdMinor | BuildMode::ProdPatch);
 
     // ==========================================
     // STEP A: Activate Environment Guard
     // ==========================================
-    let _env_guard = crate::env::EnvGuard::activate(cli_profile, project_root).map_err(|e| format!("{:#}", e))?;
+    let _env_guard = crate::env::EnvGuard::activate(cli_profile, project_root.as_std_path()).map_err(|e| format!("{:#}", e))?;
 
     // ==========================================
     // STEP B: Pre-Build Validation & Execution
     // ==========================================
 
     // 1. Config Audit
-    let mut config = yml_read_from(project_root, is_dev)?;
+    let mut config = yml_read_from(project_root.as_std_path(), is_dev)?;
 
     // 2. Git Capability Audit
     if config.git.commit {
         if !is_git_installed() {
             return Err("Git is required for commit but not found on system PATH.".to_string());
         }
-        check_git_profile(Some(project_root))?;
+        check_git_profile(Some(project_root.as_std_path()))?;
     }
 
     // 3. Resolve configs and hooks
@@ -129,15 +129,15 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     // Pre-flight Environment Verification
     let mut resolved_files = Vec::new();
     if let Some(scripts) = &build_scripts {
-        resolved_files = resolve_explicit_scripts(project_root, scripts)?;
+        resolved_files = resolve_explicit_scripts(project_root.as_std_path(), scripts)?;
     } else {
         if !quarto_exists && !bookdown_exists {
-            resolved_files = resolve_fallback_scripts(project_root)?;
+            resolved_files = resolve_fallback_scripts(project_root.as_std_path())?;
         }
     }
 
     // Upfront check for hooks
-    let resolved_hooks = resolve_explicit_scripts(project_root, &raw_hooks)?;
+    let resolved_hooks = resolve_explicit_scripts(project_root.as_std_path(), &raw_hooks)?;
 
     for expected_hook in raw_hooks.iter() {
         if expected_hook.starts_with('!') { continue; } // Exclusions not validated directly here
@@ -186,7 +186,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     )?;
 
     // 4. VERSION Initialization Check
-    let mut initial_version = match version_get_from(project_root) {
+    let mut initial_version = match version_get_from(project_root.as_std_path()) {
         Some(v) => v,
         None => {
             let desc_path = project_root.join("DESCRIPTION");
@@ -205,7 +205,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
                 found_ver.ok_or_else(|| "Could not extract a valid Version from DESCRIPTION file.".to_string())?
             } else {
                 let v = crate::version::ProjVersion { major: 0, minor: 0, patch: 1, dev: 0 };
-                version_set_at(project_root, &v.to_string(true)).map_err(|e| format!("{:#}", e))?;
+                version_set_at(project_root.as_std_path(), &v.to_string(true)).map_err(|e| format!("{:#}", e))?;
                 v
             }
         }
@@ -218,14 +218,14 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     let clear_output_env = std::env::var("PROJR_CLEAR_OUTPUT").ok();
     let clear_output_val = clear_output_env.as_deref().or(config.clear_output.as_deref());
 
-    crate::clear::clear_old(project_root, &current_version, is_dev, config.old_dev_remove).map_err(|e| e.to_string())?;
-    crate::clear::clear_pre(project_root, &current_version, &config, clear_output_val).map_err(|e| e.to_string())?;
+    crate::clear::clear_old(project_root.as_std_path(), &current_version, is_dev, config.old_dev_remove).map_err(|e| e.to_string())?;
+    crate::clear::clear_pre(project_root.as_std_path(), &current_version, &config, clear_output_val).map_err(|e| e.to_string())?;
 
     // 5. Version Bump
     if is_dev {
         if initial_version.dev == 0 {
             initial_version.dev = 1;
-            version_set_at(project_root, &initial_version.to_string(false)).map_err(|e| format!("{:#}", e))?;
+            version_set_at(project_root.as_std_path(), &initial_version.to_string(false)).map_err(|e| format!("{:#}", e))?;
         }
     } else {
         match mode {
@@ -246,7 +246,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
             }
             _ => {}
         }
-        version_set_at(project_root, &initial_version.to_string(false)).map_err(|e| format!("{:#}", e))?;
+        version_set_at(project_root.as_std_path(), &initial_version.to_string(false)).map_err(|e| format!("{:#}", e))?;
     }
 
     // 6. Git auto-ignore (already handled in yml_read_from via update_ignores)
@@ -265,22 +265,22 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
         }
 
         let isolated_docs_path = project_root.join("_tmp").join("projr").join(&current_version).join("docs");
-        let isolated_docs_path_str = isolated_docs_path.strip_prefix(project_root).unwrap_or(&isolated_docs_path).to_string_lossy().to_string();
+        let isolated_docs_path_str = isolated_docs_path.strip_prefix(project_root).unwrap_or(&isolated_docs_path).as_str().to_string();
 
         if quarto_exists {
-            rewrite_engine_output_dir(project_root, "quarto", &isolated_docs_path_str)?;
+            rewrite_engine_output_dir(project_root.as_std_path(), "quarto", &isolated_docs_path_str)?;
         }
         if bookdown_exists {
-            rewrite_engine_output_dir(project_root, "bookdown", &isolated_docs_path_str)?;
+            rewrite_engine_output_dir(project_root.as_std_path(), "bookdown", &isolated_docs_path_str)?;
         }
 
         if original_docs_path.is_some() {
             if let Some(docs_mut) = config.directories.get_mut(&actual_docs_key) {
-                docs_mut.path = isolated_docs_path;
+                docs_mut.path = isolated_docs_path.into();
             }
         } else {
             config.directories.insert("docs".to_string(), crate::yml::ResolvedDir {
-                path: isolated_docs_path,
+                path: isolated_docs_path.into(),
                 ignore: crate::yml::IgnoreConfig::Single("git".to_string()),
             });
         }
@@ -288,13 +288,13 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
 
     // Execute Pre-Build Hooks
     if let Some(pre_hooks) = &hooks_config.pre {
-        let pre_resolved = resolve_explicit_scripts(project_root, pre_hooks)?;
+        let pre_resolved = resolve_explicit_scripts(project_root.as_std_path(), pre_hooks)?;
         for hook in pre_resolved {
             execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
         }
     }
     if let Some(both_hooks) = &hooks_config.both {
-        let both_resolved = resolve_explicit_scripts(project_root, both_hooks)?;
+        let both_resolved = resolve_explicit_scripts(project_root.as_std_path(), both_hooks)?;
         for hook in both_resolved {
             execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
         }
@@ -302,7 +302,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
 
     // 6. Git Pre-Snapshot
     if config.git.commit {
-        git_commit_all("Snapshot pre-build", Some(project_root))?;
+        git_commit_all("Snapshot pre-build", Some(project_root.as_std_path()))?;
     }
 
     // ==========================================
@@ -314,7 +314,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
     let profile_clone = profile.clone();
     let build_scripts_clone = build_scripts.clone();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        execute_build_pipeline(&pr, build_scripts_clone, profile_clone, quarto_exists, bookdown_exists, resolved_python_cmd.as_deref())
+        execute_build_pipeline(&camino::Utf8PathBuf::try_from(pr).unwrap(), build_scripts_clone, profile_clone, quarto_exists, bookdown_exists, resolved_python_cmd.as_deref())
     }));
 
     match result {
@@ -325,10 +325,10 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
 
             // Restore Sidecar Configs
             if quarto_exists {
-                let _ = rewrite_engine_output_dir(project_root, "quarto", &original_docs_path_str);
+                let _ = rewrite_engine_output_dir(project_root.as_std_path(), "quarto", &original_docs_path_str);
             }
             if bookdown_exists {
-                let _ = rewrite_engine_output_dir(project_root, "bookdown", &original_docs_path_str);
+                let _ = rewrite_engine_output_dir(project_root.as_std_path(), "bookdown", &original_docs_path_str);
             }
             if quarto_exists || bookdown_exists {
                 if let Some(orig_path) = original_docs_path.as_ref() {
@@ -343,39 +343,39 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
             let is_single_doc_engine = !quarto_exists && !bookdown_exists;
             let clear_output_env = std::env::var("PROJR_CLEAR_OUTPUT").ok();
             let clear_output_val = clear_output_env.as_deref().or(config.clear_output.as_deref());
-            crate::clear::clear_post(project_root, is_dev, &config, clear_output_val, is_single_doc_engine).map_err(|e| e.to_string())?;
+            crate::clear::clear_post(project_root.as_std_path(), is_dev, &config, clear_output_val, is_single_doc_engine).map_err(|e| e.to_string())?;
 
             // Copy docs
             let should_run_output = config.output_run.unwrap_or(true);
             if should_run_output {
-                let final_docs_dir = original_docs_path.clone().unwrap_or_else(|| project_root.join("docs"));
+                let final_docs_dir = original_docs_path.clone().unwrap_or_else(|| project_root.join("docs").into());
                 let cache_docs_dir = project_root.join("_tmp").join("projr").join(&current_version).join("docs");
 
                 if quarto_exists {
-                    let _ = copy_global_quarto_project(&cache_docs_dir, &final_docs_dir);
+                    let _ = copy_global_quarto_project(cache_docs_dir.as_std_path(), final_docs_dir.as_path());
                 } else if bookdown_exists {
-                    let _ = copy_global_bookdown(&cache_docs_dir, &final_docs_dir, project_root);
+                    let _ = copy_global_bookdown(cache_docs_dir.as_std_path(), final_docs_dir.as_path(), project_root.as_std_path());
                 } else {
                     // It's a mixed/individual file run
                     if let Some(scripts) = &build_scripts {
-                        if let Ok(resolved_files) = resolve_explicit_scripts(project_root, scripts) {
+                        if let Ok(resolved_files) = resolve_explicit_scripts(project_root.as_std_path(), scripts) {
                             for file in resolved_files {
                                 let ext = file.extension().and_then(|s| s.to_str()).unwrap_or("");
                                 if ext == "qmd" {
-                                    let _ = copy_individual_quarto(&file, &final_docs_dir, project_root);
+                                    let _ = copy_individual_quarto(&file, final_docs_dir.as_path(), project_root.as_std_path());
                                 } else if ext == "Rmd" || ext == "rmd" {
-                                    let _ = copy_individual_rmd(&file, &final_docs_dir, project_root);
+                                    let _ = copy_individual_rmd(&file, final_docs_dir.as_path(), project_root.as_std_path());
                                 }
                             }
                         }
                     } else {
-                        if let Ok(resolved_files) = resolve_fallback_scripts(project_root) {
+                        if let Ok(resolved_files) = resolve_fallback_scripts(project_root.as_std_path()) {
                             for file in resolved_files {
                                 let ext = file.extension().and_then(|s| s.to_str()).unwrap_or("");
                                 if ext == "qmd" {
-                                    let _ = copy_individual_quarto(&file, &final_docs_dir, project_root);
+                                    let _ = copy_individual_quarto(&file, final_docs_dir.as_path(), project_root.as_std_path());
                                 } else if ext == "Rmd" || ext == "rmd" {
-                                    let _ = copy_individual_rmd(&file, &final_docs_dir, project_root);
+                                    let _ = copy_individual_rmd(&file, final_docs_dir.as_path(), project_root.as_std_path());
                                 }
                             }
                         }
@@ -391,19 +391,19 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
                 };
 
                 // Use the new Git Provider to commit
-                let provider = create_git_provider(config.config.git.engine, project_root.to_path_buf())?;
+                let provider = create_git_provider(config.config.git.engine, project_root.as_std_path().to_path_buf())?;
                 provider.commit_all(&final_message)?;
             }
 
             // Execute Post-Build Hooks (after post-build commit, before push)
             if let Some(post_hooks) = &hooks_config.post {
-                let post_resolved = resolve_explicit_scripts(project_root, post_hooks)?;
+                let post_resolved = resolve_explicit_scripts(project_root.as_std_path(), post_hooks)?;
                 for hook in post_resolved {
                     execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
                 }
             }
             if let Some(both_hooks) = &hooks_config.both {
-                let both_resolved = resolve_explicit_scripts(project_root, both_hooks)?;
+                let both_resolved = resolve_explicit_scripts(project_root.as_std_path(), both_hooks)?;
                 for hook in both_resolved {
                     execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
                 }
@@ -415,10 +415,10 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
                     for dest_target in &config.dest {
                         if let Some(remote) = remotes.get(dest_target) {
                             for tag in &remote.content {
-                                if let Ok(dir_path) = config.get_path(project_root, tag) {
+                                if let Ok(dir_path) = config.get_path(project_root.as_std_path(), tag) {
                                     if dir_path.exists() {
                                         crate::cas::ingest_directory(
-                                            camino::Utf8Path::from_path(project_root).ok_or_else(|| format!("Invalid utf8 path"))?,
+                                            camino::Utf8Path::from_path(project_root.as_std_path()).ok_or_else(|| format!("Invalid utf8 path"))?,
                                             camino::Utf8Path::from_path(&remote.path).ok_or_else(|| format!("Invalid utf8 path"))?,
                                             tag,
                                             camino::Utf8Path::from_path(&dir_path).ok_or_else(|| format!("Invalid utf8 path"))?,
@@ -442,10 +442,10 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
         Ok(Err(e)) => {
             // Restore Sidecar Configs on failure
             if quarto_exists {
-                let _ = rewrite_engine_output_dir(project_root, "quarto", &original_docs_path_str);
+                let _ = rewrite_engine_output_dir(project_root.as_std_path(), "quarto", &original_docs_path_str);
             }
             if bookdown_exists {
-                let _ = rewrite_engine_output_dir(project_root, "bookdown", &original_docs_path_str);
+                let _ = rewrite_engine_output_dir(project_root.as_std_path(), "bookdown", &original_docs_path_str);
             }
             if quarto_exists || bookdown_exists {
                 if let Some(orig_path) = original_docs_path.as_ref() {
@@ -463,17 +463,17 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
                 if reverted.dev == 0 {
                     reverted.dev = 1;
                 }
-                let _ = version_set_at(project_root, &reverted.to_string(false));
+                let _ = version_set_at(project_root.as_std_path(), &reverted.to_string(false));
             }
             Err(e)
         }
         Err(_) => {
             // Restore Sidecar Configs on failure
             if quarto_exists {
-                let _ = rewrite_engine_output_dir(project_root, "quarto", &original_docs_path_str);
+                let _ = rewrite_engine_output_dir(project_root.as_std_path(), "quarto", &original_docs_path_str);
             }
             if bookdown_exists {
-                let _ = rewrite_engine_output_dir(project_root, "bookdown", &original_docs_path_str);
+                let _ = rewrite_engine_output_dir(project_root.as_std_path(), "bookdown", &original_docs_path_str);
             }
             if quarto_exists || bookdown_exists {
                 if let Some(orig_path) = original_docs_path.as_ref() {
@@ -491,7 +491,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
                 if reverted.dev == 0 {
                     reverted.dev = 1;
                 }
-                let _ = version_set_at(project_root, &reverted.to_string(false));
+                let _ = version_set_at(project_root.as_std_path(), &reverted.to_string(false));
             }
             Err("Build pipeline panicked unexpectedly.".to_string())
         }
@@ -499,7 +499,7 @@ pub fn build_project(project_root: &Path, mode: BuildMode, cli_profile: Option<&
 }
 
 fn execute_build_pipeline(
-    project_root: &Path,
+    project_root: &camino::Utf8Path,
     build_scripts: Option<Vec<String>>,
     profile: Option<String>,
     quarto_exists: bool,
@@ -508,7 +508,7 @@ fn execute_build_pipeline(
 ) -> Result<(), String> {
     if let Some(scripts) = build_scripts {
         // Path A: Explicit Configuration via build.scripts
-        let resolved_files = resolve_explicit_scripts(project_root, &scripts)?;
+        let resolved_files = resolve_explicit_scripts(project_root.as_std_path(), &scripts)?;
 
         // Mutual Exclusion Error (Rule 1 & 2)
         if quarto_exists && bookdown_exists {
@@ -535,9 +535,9 @@ fn execute_build_pipeline(
         }
 
         if quarto_exists && !doc_files.is_empty() {
-            rewrite_quarto_yml(project_root, &doc_files)?;
+            rewrite_quarto_yml(project_root.as_std_path(), &doc_files)?;
         } else if bookdown_exists && !doc_files.is_empty() {
-            rewrite_bookdown_yml(project_root, &doc_files)?;
+            rewrite_bookdown_yml(project_root.as_std_path(), &doc_files)?;
         }
 
         // Reordering constraint
@@ -568,10 +568,10 @@ fn execute_build_pipeline(
             // Execute doc clusters
             if quarto_exists && !doc_files.is_empty() {
                 let p = profile.clone();
-                execute_project_render(project_root, true, p.as_deref())?;
+                execute_project_render(project_root.as_std_path(), true, p.as_deref())?;
             } else if bookdown_exists && !doc_files.is_empty() {
                 let p = profile.clone();
-                execute_project_render(project_root, false, p.as_deref())?;
+                execute_project_render(project_root.as_std_path(), false, p.as_deref())?;
             }
 
             // Execute post-scripts
@@ -595,11 +595,11 @@ fn execute_build_pipeline(
 
         // Path B: Fallback Automated Auto-Discovery
         if quarto_exists {
-            execute_project_render(project_root, true, profile.as_deref())?;
+            execute_project_render(project_root.as_std_path(), true, profile.as_deref())?;
         } else if bookdown_exists {
-            execute_project_render(project_root, false, profile.as_deref())?;
+            execute_project_render(project_root.as_std_path(), false, profile.as_deref())?;
         } else {
-            let resolved_files = resolve_fallback_scripts(project_root)?;
+            let resolved_files = resolve_fallback_scripts(project_root.as_std_path())?;
             for file in resolved_files {
                 execute_script(&file, profile.as_deref(), resolved_python_cmd)?;
             }

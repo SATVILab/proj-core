@@ -260,7 +260,7 @@ fn main() {
                     }
                 }
 
-                if let Err(e) = proj::build_project(&root, mode, profile.as_deref(), desc.as_deref()) {
+                if let Err(e) = proj::build_project(&camino::Utf8PathBuf::try_from(root).unwrap(), mode, profile.as_deref(), desc.as_deref()) {
                     eprintln!("Build failed: {}", e);
                     std::process::exit(1);
                 } else {
@@ -273,7 +273,7 @@ fn main() {
         },
         Commands::BuildDev { profile } => {
             if let Some(root) = proj::root() {
-                if let Err(e) = proj::build_project(&root, proj::BuildMode::Dev, profile.as_deref(), None) {
+                if let Err(e) = proj::build_project(&camino::Utf8PathBuf::try_from(root).unwrap(), proj::BuildMode::Dev, profile.as_deref(), None) {
                     eprintln!("Build failed: {}", e);
                     std::process::exit(1);
                 } else {

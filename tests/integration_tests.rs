@@ -29,7 +29,7 @@ fn test_missing_version_fallback_to_description() {
 
     // Should create VERSION file containing v1.2.3.4 (after reading it, bumped for PROD patch)
     // Actually ProdPatch bumps patch -> 1.2.4.0
-    let _res = build_project(root, BuildMode::ProdPatch, None, None);
+    let _res = build_project(camino::Utf8Path::from_path(root).unwrap(), BuildMode::ProdPatch, None, None);
     // Might fail because execute_build_pipeline will try to execute stuff,
     // but the VERSION should be created before that.
     // Let's assert on the VERSION file creation.
@@ -55,7 +55,7 @@ fn test_missing_version_fallback_to_default() {
     Command::new("git").args(["config", "user.name", "Test User"]).current_dir(root).output().unwrap();
     Command::new("git").args(["config", "user.email", "test@example.com"]).current_dir(root).output().unwrap();
 
-    let res = build_project(root, BuildMode::ProdPatch, None, None);
+    let res = build_project(camino::Utf8Path::from_path(root).unwrap(), BuildMode::ProdPatch, None, None);
 
     // Should fallback to 0.0.1 and then bump to 0.0.2 for ProdPatch
     let version_content = fs::read_to_string(root.join("VERSION")).unwrap_or_default();
