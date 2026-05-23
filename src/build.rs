@@ -186,7 +186,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
     )?;
 
     // 4. VERSION Initialization Check
-    let mut initial_version = match version_get_from(project_root.as_std_path()) {
+    let mut initial_version = match version_get_from(project_root) {
         Some(v) => v,
         None => {
             let desc_path = project_root.join("DESCRIPTION");
@@ -205,7 +205,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
                 found_ver.ok_or_else(|| "Could not extract a valid Version from DESCRIPTION file.".to_string())?
             } else {
                 let v = crate::version::ProjVersion { major: 0, minor: 0, patch: 1, dev: 0 };
-                version_set_at(project_root.as_std_path(), &v.to_string(true)).map_err(|e| format!("{:#}", e))?;
+                version_set_at(project_root, &v.to_string(true)).map_err(|e| format!("{:#}", e))?;
                 v
             }
         }
@@ -225,7 +225,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
     if is_dev {
         if initial_version.dev == 0 {
             initial_version.dev = 1;
-            version_set_at(project_root.as_std_path(), &initial_version.to_string(false)).map_err(|e| format!("{:#}", e))?;
+            version_set_at(project_root, &initial_version.to_string(false)).map_err(|e| format!("{:#}", e))?;
         }
     } else {
         match mode {
@@ -246,7 +246,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
             }
             _ => {}
         }
-        version_set_at(project_root.as_std_path(), &initial_version.to_string(false)).map_err(|e| format!("{:#}", e))?;
+        version_set_at(project_root, &initial_version.to_string(false)).map_err(|e| format!("{:#}", e))?;
     }
 
     // 6. Git auto-ignore (already handled in yml_read_from via update_ignores)
@@ -463,7 +463,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
                 if reverted.dev == 0 {
                     reverted.dev = 1;
                 }
-                let _ = version_set_at(project_root.as_std_path(), &reverted.to_string(false));
+                let _ = version_set_at(project_root, &reverted.to_string(false));
             }
             Err(e)
         }
@@ -491,7 +491,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
                 if reverted.dev == 0 {
                     reverted.dev = 1;
                 }
-                let _ = version_set_at(project_root.as_std_path(), &reverted.to_string(false));
+            let _ = version_set_at(project_root, &reverted.to_string(false));
             }
             Err("Build pipeline panicked unexpectedly.".to_string())
         }
@@ -869,7 +869,7 @@ pub fn copy_individual_rmd(file_path: &Path, docs_path: &Path, project_root: &Pa
 
     if files_dir.exists() {
         let dest_files_dir = docs_path.join(&files_dir_name);
-        crate::fs_utils::dir_move_exact(&files_dir, &dest_files_dir).map_err(|e| e.to_string())?;
+        crate::fs_utils::dir_move_exact(&camino::Utf8PathBuf::try_from(files_dir.clone()).unwrap(), &camino::Utf8PathBuf::try_from(dest_files_dir.clone()).unwrap()).map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -904,14 +904,14 @@ pub fn copy_individual_quarto(file_path: &Path, docs_path: &Path, project_root: 
 
     if files_dir.exists() {
         let dest_files_dir = docs_path.join(&files_dir_name);
-        crate::fs_utils::dir_move_exact(&files_dir, &dest_files_dir).map_err(|e| e.to_string())?;
+        crate::fs_utils::dir_move_exact(&camino::Utf8PathBuf::try_from(files_dir.clone()).unwrap(), &camino::Utf8PathBuf::try_from(dest_files_dir.clone()).unwrap()).map_err(|e| e.to_string())?;
     }
 
     Ok(())
 }
 
 pub fn copy_global_bookdown(cache_docs_dir: &Path, final_docs_dir: &Path, project_root: &Path) -> Result<(), String> {
-    crate::fs_utils::dir_move_exact(cache_docs_dir, final_docs_dir).map_err(|e| e.to_string())?;
+    crate::fs_utils::dir_move_exact(&camino::Utf8PathBuf::try_from(cache_docs_dir.to_path_buf()).unwrap(), &camino::Utf8PathBuf::try_from(final_docs_dir.to_path_buf()).unwrap()).map_err(|e| e.to_string())?;
 
     // We also need to locate <book_filename>_files and move to final target context.
     // _bookdown.yml specifies book_filename, defaulting to _main
@@ -932,14 +932,14 @@ pub fn copy_global_bookdown(cache_docs_dir: &Path, final_docs_dir: &Path, projec
     let files_dir = project_root.join(&files_dir_name);
     if files_dir.exists() {
         let dest_files_dir = final_docs_dir.join(&files_dir_name);
-        crate::fs_utils::dir_move_exact(&files_dir, &dest_files_dir).map_err(|e| e.to_string())?;
+        crate::fs_utils::dir_move_exact(&camino::Utf8PathBuf::try_from(files_dir.clone()).unwrap(), &camino::Utf8PathBuf::try_from(dest_files_dir.clone()).unwrap()).map_err(|e| e.to_string())?;
     }
 
     Ok(())
 }
 
 pub fn copy_global_quarto_project(cache_docs_dir: &Path, final_docs_dir: &Path) -> Result<(), String> {
-    crate::fs_utils::dir_move_exact(cache_docs_dir, final_docs_dir).map_err(|e| e.to_string())
+    crate::fs_utils::dir_move_exact(&camino::Utf8PathBuf::try_from(cache_docs_dir.to_path_buf()).unwrap(), &camino::Utf8PathBuf::try_from(final_docs_dir.to_path_buf()).unwrap()).map_err(|e| e.to_string())
 }
 
 /// Executes a single script in an isolated subprocess.

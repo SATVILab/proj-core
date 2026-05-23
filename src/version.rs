@@ -2,6 +2,7 @@ use serde::{Serialize, Deserialize};
 use regex::Regex;
 use std::fs;
 use crate::ignore::root;
+use camino::Utf8Path;
 
 /// Represents the project version separated into standard semantic components.
 ///
@@ -108,18 +109,20 @@ impl ProjVersion {
 /// ```rust
 /// use std::fs;
 /// use tempfile::TempDir;
+/// use camino::Utf8PathBuf;
 /// use proj::version::{ProjVersion, version_get_from};
 ///
 /// let temp = TempDir::new().unwrap();
-/// let version_path = temp.path().join("VERSION");
+/// let temp_utf8 = Utf8PathBuf::try_from(temp.path().to_path_buf()).unwrap();
+/// let version_path = temp_utf8.join("VERSION");
 /// fs::write(&version_path, "Version: v1.0.0").unwrap();
 ///
-/// let version = version_get_from(temp.path()).unwrap();
+/// let version = version_get_from(&temp_utf8).unwrap();
 /// assert_eq!(version.major, 1);
 /// assert_eq!(version.minor, 0);
 /// assert_eq!(version.patch, 0);
 /// ```
-pub fn version_get_from(root: &std::path::Path) -> Option<ProjVersion> {
+pub fn version_get_from(root: &Utf8Path) -> Option<ProjVersion> {
     let version_file_path = root.join("VERSION");
     let content = fs::read_to_string(version_file_path).ok()?;
     ProjVersion::parse(&content)
@@ -137,7 +140,8 @@ pub fn version_get_from(root: &std::path::Path) -> Option<ProjVersion> {
 /// ```
 pub fn version_get() -> Option<ProjVersion> {
     let root = root()?;
-    version_get_from(&root)
+    let root_utf8 = camino::Utf8PathBuf::try_from(root).ok()?;
+    version_get_from(&root_utf8)
 }
 
 /// Updates the current project version globally using a specified root.
@@ -147,23 +151,25 @@ pub fn version_get() -> Option<ProjVersion> {
 ///
 /// # Errors
 ///
-/// Returns a `String` containing the error context if the input format is invalid,
+/// Returns an `anyhow::Result` if the input format is invalid,
 /// or the `VERSION` file cannot be written to.
 ///
 /// ```rust
 /// use std::fs;
 /// use tempfile::TempDir;
+/// use camino::Utf8PathBuf;
 /// use proj::version::{ProjVersion, version_set_at};
 ///
 /// let temp = TempDir::new().unwrap();
-/// let version_path = temp.path().join("VERSION");
+/// let temp_utf8 = Utf8PathBuf::try_from(temp.path().to_path_buf()).unwrap();
+/// let version_path = temp_utf8.join("VERSION");
 /// fs::write(&version_path, "v1.0.0").unwrap();
 ///
-/// version_set_at(temp.path(), "v1.2.0").unwrap();
+/// version_set_at(&temp_utf8, "v1.2.0").unwrap();
 /// let new_version = fs::read_to_string(&version_path).unwrap();
 /// assert_eq!(new_version, "Version: v1.2.0");
 /// ```
-pub fn version_set_at(root: &std::path::Path, version_str: &str) -> anyhow::Result<()> {
+pub fn version_set_at(root: &Utf8Path, version_str: &str) -> anyhow::Result<()> {
     let version = ProjVersion::parse(version_str)
         .ok_or_else(|| anyhow::anyhow!("Could not parse version: {}", version_str))?;
 
@@ -186,7 +192,9 @@ pub fn version_set_at(root: &std::path::Path, version_str: &str) -> anyhow::Resu
 /// ```
 pub fn version_set(version_str: &str) -> anyhow::Result<()> {
     let root = root().ok_or_else(|| anyhow::anyhow!("Could not find project root containing VERSION file"))?;
-    version_set_at(&root, version_str)
+    let root_utf8 = camino::Utf8PathBuf::try_from(root)
+        .map_err(|e| anyhow::anyhow!("Non-UTF-8 path: {}", e))?;
+    version_set_at(&root_utf8, version_str)
 }
 
 #[cfg(test)]
