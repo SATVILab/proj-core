@@ -96,8 +96,10 @@ pub fn ask_choice(prompt: &str, choices: &[&str], default: Option<&str>) -> Stri
     }
 }
 
-pub fn init_version() -> Result<(), String> {
-    let project_root = root().ok_or_else(|| "Failed to find project root.".to_string())?;
+use anyhow::Context;
+
+pub fn init_version() -> anyhow::Result<()> {
+    let project_root = root().context("Failed to find project root.")?;
     let version_file = project_root.join("VERSION");
     let desc_file = project_root.join("DESCRIPTION");
 
@@ -105,7 +107,7 @@ pub fn init_version() -> Result<(), String> {
         let mut initial_version = "v0.0.1".to_string();
 
         if desc_file.exists() {
-            if let Ok(content) = fs::read_to_string(&desc_file) {
+            if let Ok(content) = fs::read_to_string(desc_file.as_std_path()) {
                 for line in content.lines() {
                     if line.starts_with("Version:") {
                         initial_version = line.trim_start_matches("Version:").trim().to_string();
@@ -119,7 +121,7 @@ pub fn init_version() -> Result<(), String> {
         }
 
         println!("Initializing VERSION file with {}", initial_version);
-        version_set(&initial_version).map_err(|e| format!("{:#}", e))?;
+        version_set(&initial_version).context("Failed to set initial version.")?;
     } else {
         println!("VERSION file already exists. Skipping.");
     }
@@ -127,8 +129,8 @@ pub fn init_version() -> Result<(), String> {
     Ok(())
 }
 
-pub fn init_directories() -> Result<(), String> {
-    let project_root = root().ok_or_else(|| "Failed to find project root.".to_string())?;
+pub fn init_directories() -> anyhow::Result<()> {
+    let project_root = root().context("Failed to find project root.")?;
 
     // Read config to find resolved paths
     let config = yml_read(false).unwrap_or_else(|_| {
@@ -141,7 +143,7 @@ pub fn init_directories() -> Result<(), String> {
         if let Ok(dir_path) = config.get_path(project_root.as_path(), label) {
             if !dir_path.exists() {
                 println!("Creating directory: {}", dir_path);
-                fs::create_dir_all(&dir_path).map_err(|e| format!("Failed to create {}: {}", label, e))?;
+                fs::create_dir_all(dir_path.as_std_path()).with_context(|| format!("Failed to create {}.", label))?;
             } else {
                 println!("Directory already exists: {}", dir_path);
             }
@@ -151,7 +153,7 @@ pub fn init_directories() -> Result<(), String> {
     let r_dir = project_root.join("R");
     if !r_dir.exists() {
         println!("Creating directory: {}", r_dir);
-        fs::create_dir_all(&r_dir).map_err(|e| format!("Failed to create R directory: {}", e))?;
+        fs::create_dir_all(r_dir.as_std_path()).context("Failed to create R directory.")?;
     } else {
         println!("Directory already exists: R");
     }
@@ -159,8 +161,8 @@ pub fn init_directories() -> Result<(), String> {
     Ok(())
 }
 
-pub fn init_readme(title_opt: Option<String>, description_opt: Option<String>) -> Result<(), String> {
-    let project_root = root().ok_or_else(|| "Failed to find project root.".to_string())?;
+pub fn init_readme(title_opt: Option<String>, description_opt: Option<String>) -> anyhow::Result<()> {
+    let project_root = root().context("Failed to find project root.")?;
     let readme_path = project_root.join("README.md");
 
     if !readme_path.exists() {
@@ -169,7 +171,7 @@ pub fn init_readme(title_opt: Option<String>, description_opt: Option<String>) -
             let description = description_opt.unwrap_or_else(|| ask_string("Project Description", Some("A projr project.")));
 
             let content = format!("# {}\n\n{}\n", title, description);
-            fs::write(&readme_path, content).map_err(|e| format!("Failed to write README.md: {}", e))?;
+            fs::write(readme_path.as_std_path(), content).context("Failed to write README.md.")?;
             println!("Created README.md.");
         }
     } else {
@@ -179,8 +181,8 @@ pub fn init_readme(title_opt: Option<String>, description_opt: Option<String>) -
     Ok(())
 }
 
-pub fn init_license(license_opt: Option<String>, first_name_opt: Option<String>, last_name_opt: Option<String>) -> Result<(), String> {
-    let project_root = root().ok_or_else(|| "Failed to find project root.".to_string())?;
+pub fn init_license(license_opt: Option<String>, first_name_opt: Option<String>, last_name_opt: Option<String>) -> anyhow::Result<()> {
+    let project_root = root().context("Failed to find project root.")?;
     let license_path = project_root.join("LICENSE");
 
     if !license_path.exists() {
@@ -199,7 +201,7 @@ pub fn init_license(license_opt: Option<String>, first_name_opt: Option<String>,
                 _ => "".to_string(),
             };
 
-            fs::write(&license_path, content).map_err(|e| format!("Failed to write LICENSE: {}", e))?;
+            fs::write(license_path.as_std_path(), content).context("Failed to write LICENSE.")?;
             println!("Created LICENSE ({})", choice);
         }
     } else {
@@ -211,8 +213,8 @@ pub fn init_license(license_opt: Option<String>, first_name_opt: Option<String>,
 
 use std::process::Command;
 
-pub fn init_git(commit_opt: Option<bool>) -> Result<(), String> {
-    let project_root = root().ok_or_else(|| "Failed to find project root.".to_string())?;
+pub fn init_git(commit_opt: Option<bool>) -> anyhow::Result<()> {
+    let project_root = root().context("Failed to find project root.")?;
     let git_dir = project_root.join(".git");
 
     let mut is_new = false;
@@ -220,12 +222,12 @@ pub fn init_git(commit_opt: Option<bool>) -> Result<(), String> {
         if ask_yes_no("Initialize a Git repository?", true) {
             let output = Command::new("git")
                 .arg("init")
-                .current_dir(&project_root)
+                .current_dir(project_root.as_std_path())
                 .output()
-                .map_err(|e| format!("Failed to execute git init: {}", e))?;
+                .context("Failed to execute git init.")?;
 
             if !output.status.success() {
-                return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+                anyhow::bail!("{}", String::from_utf8_lossy(&output.stderr).into_owned());
             }
             println!("Initialized empty Git repository.");
             is_new = true;
@@ -239,15 +241,15 @@ pub fn init_git(commit_opt: Option<bool>) -> Result<(), String> {
     if is_new && should_commit {
         Command::new("git")
             .args(["add", "."])
-            .current_dir(&project_root)
+            .current_dir(project_root.as_std_path())
             .output()
             .unwrap();
 
         let commit_output = Command::new("git")
             .args(["commit", "-m", "Initial commit from proj init"])
-            .current_dir(&project_root)
+            .current_dir(project_root.as_std_path())
             .output()
-            .map_err(|e| format!("Failed to execute git commit: {}", e))?;
+            .context("Failed to execute git commit.")?;
 
         if commit_output.status.success() {
             println!("Initial commit created.");
@@ -264,14 +266,14 @@ pub fn init_git(commit_opt: Option<bool>) -> Result<(), String> {
     Ok(())
 }
 
-pub fn init_github(public_opt: Option<bool>) -> Result<(), String> {
-    let project_root = root().ok_or_else(|| "Failed to find project root.".to_string())?;
+pub fn init_github(public_opt: Option<bool>) -> anyhow::Result<()> {
+    let project_root = root().context("Failed to find project root.")?;
 
     let remote_output = Command::new("git")
         .arg("remote")
-        .current_dir(&project_root)
+        .current_dir(project_root.as_std_path())
         .output()
-        .map_err(|e| format!("Failed to check git remotes: {}", e))?;
+        .context("Failed to check git remotes.")?;
 
     let remotes = String::from_utf8_lossy(&remote_output.stdout);
     if remotes.trim().is_empty() {
@@ -288,9 +290,9 @@ pub fn init_github(public_opt: Option<bool>) -> Result<(), String> {
             println!("Creating GitHub repository...");
             let gh_output = Command::new("gh")
                 .args(&args)
-                .current_dir(&project_root)
+                .current_dir(project_root.as_std_path())
                 .output()
-                .map_err(|e| format!("Failed to execute gh repo create: {}", e))?;
+                .context("Failed to execute gh repo create.")?;
 
             if gh_output.status.success() {
                 println!("Successfully created and pushed to GitHub repository.");
@@ -306,7 +308,7 @@ pub fn init_github(public_opt: Option<bool>) -> Result<(), String> {
     Ok(())
 }
 
-pub fn init_full() -> Result<(), String> {
+pub fn init_full() -> anyhow::Result<()> {
     println!("Starting full proj initialization...");
     init_version()?;
     init_directories()?;
