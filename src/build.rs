@@ -129,15 +129,15 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
     // Pre-flight Environment Verification
     let mut resolved_files = Vec::new();
     if let Some(scripts) = &build_scripts {
-        resolved_files = resolve_explicit_scripts(project_root.as_std_path(), scripts)?;
+        resolved_files = resolve_explicit_scripts(project_root, scripts).map_err(|e| e.to_string())?.into_iter().map(|p| p.into_std_path_buf()).collect::<Vec<_>>();
     } else {
         if !quarto_exists && !bookdown_exists {
-            resolved_files = resolve_fallback_scripts(project_root.as_std_path())?;
+            resolved_files = resolve_fallback_scripts(project_root).map_err(|e| e.to_string())?.into_iter().map(|p| p.into_std_path_buf()).collect::<Vec<_>>();
         }
     }
 
     // Upfront check for hooks
-    let resolved_hooks = resolve_explicit_scripts(project_root.as_std_path(), &raw_hooks)?;
+    let resolved_hooks = resolve_explicit_scripts(project_root, &raw_hooks).map_err(|e| e.to_string())?.into_iter().map(|p| p.into_std_path_buf()).collect::<Vec<_>>();
 
     for expected_hook in raw_hooks.iter() {
         if expected_hook.starts_with('!') { continue; } // Exclusions not validated directly here
@@ -288,13 +288,13 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
 
     // Execute Pre-Build Hooks
     if let Some(pre_hooks) = &hooks_config.pre {
-        let pre_resolved = resolve_explicit_scripts(project_root.as_std_path(), pre_hooks)?;
+        let pre_resolved = resolve_explicit_scripts(project_root, pre_hooks).map_err(|e| e.to_string())?.into_iter().map(|p| p.into_std_path_buf()).collect::<Vec<_>>();
         for hook in pre_resolved {
             execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
         }
     }
     if let Some(both_hooks) = &hooks_config.both {
-        let both_resolved = resolve_explicit_scripts(project_root.as_std_path(), both_hooks)?;
+        let both_resolved = resolve_explicit_scripts(project_root, both_hooks).map_err(|e| e.to_string())?.into_iter().map(|p| p.into_std_path_buf()).collect::<Vec<_>>();
         for hook in both_resolved {
             execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
         }
@@ -358,7 +358,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
                 } else {
                     // It's a mixed/individual file run
                     if let Some(scripts) = &build_scripts {
-                        if let Ok(resolved_files) = resolve_explicit_scripts(project_root.as_std_path(), scripts) {
+                        if let Ok(resolved_files) = resolve_explicit_scripts(project_root, scripts).map(|v| v.into_iter().map(|p| p.into_std_path_buf()).collect::<Vec<_>>()) {
                             for file in resolved_files {
                                 let ext = file.extension().and_then(|s| s.to_str()).unwrap_or("");
                                 if ext == "qmd" {
@@ -369,7 +369,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
                             }
                         }
                     } else {
-                        if let Ok(resolved_files) = resolve_fallback_scripts(project_root.as_std_path()) {
+                        if let Ok(resolved_files) = resolve_fallback_scripts(project_root).map(|v| v.into_iter().map(|p| p.into_std_path_buf()).collect::<Vec<_>>()) {
                             for file in resolved_files {
                                 let ext = file.extension().and_then(|s| s.to_str()).unwrap_or("");
                                 if ext == "qmd" {
@@ -397,13 +397,13 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
 
             // Execute Post-Build Hooks (after post-build commit, before push)
             if let Some(post_hooks) = &hooks_config.post {
-                let post_resolved = resolve_explicit_scripts(project_root.as_std_path(), post_hooks)?;
+                let post_resolved = resolve_explicit_scripts(project_root, post_hooks).map_err(|e| e.to_string())?.into_iter().map(|p| p.into_std_path_buf()).collect::<Vec<_>>();
                 for hook in post_resolved {
                     execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
                 }
             }
             if let Some(both_hooks) = &hooks_config.both {
-                let both_resolved = resolve_explicit_scripts(project_root.as_std_path(), both_hooks)?;
+                let both_resolved = resolve_explicit_scripts(project_root, both_hooks).map_err(|e| e.to_string())?.into_iter().map(|p| p.into_std_path_buf()).collect::<Vec<_>>();
                 for hook in both_resolved {
                     execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
                 }
@@ -508,7 +508,7 @@ fn execute_build_pipeline(
 ) -> Result<(), String> {
     if let Some(scripts) = build_scripts {
         // Path A: Explicit Configuration via build.scripts
-        let resolved_files = resolve_explicit_scripts(project_root.as_std_path(), &scripts)?;
+        let resolved_files = resolve_explicit_scripts(project_root, &scripts).map_err(|e| e.to_string())?.into_iter().map(|p| p.into_std_path_buf()).collect::<Vec<_>>();
 
         // Mutual Exclusion Error (Rule 1 & 2)
         if quarto_exists && bookdown_exists {
@@ -599,7 +599,7 @@ fn execute_build_pipeline(
         } else if bookdown_exists {
             execute_project_render(project_root.as_std_path(), false, profile.as_deref())?;
         } else {
-            let resolved_files = resolve_fallback_scripts(project_root.as_std_path())?;
+            let resolved_files = resolve_fallback_scripts(project_root).map_err(|e| e.to_string())?.into_iter().map(|p| p.into_std_path_buf()).collect::<Vec<_>>();
             for file in resolved_files {
                 execute_script(&file, profile.as_deref(), resolved_python_cmd)?;
             }
@@ -613,76 +613,26 @@ fn execute_build_pipeline(
 ///
 /// Supports exclusion globs starting with `!`, strictly matches root documents when no sub-directory
 /// prefix is provided, and captures valid formats under sub-directories.
-pub(crate) fn resolve_explicit_scripts(project_root: &Path, scripts: &[String]) -> Result<Vec<PathBuf>, String> {
+pub(crate) fn resolve_explicit_scripts(project_root: &camino::Utf8Path, scripts: &[String]) -> anyhow::Result<Vec<camino::Utf8PathBuf>> {
     if scripts.is_empty() {
-        return Ok(Vec::new()); // The Explicit Empty Exception ("Don't Run Anything")
+        return Ok(Vec::new());
     }
 
-    let mut includes = Vec::new();
-    let mut excludes = Vec::new();
+    let walker = globwalk::GlobWalkerBuilder::from_patterns(project_root.as_std_path(), scripts)
+        .follow_links(true)
+        .build()
+        .map_err(|e| anyhow::anyhow!("Walker initialization error: {}", e))?;
 
-    for script in scripts {
-        if script.starts_with('!') {
-            excludes.push(&script[1..]);
-        } else {
-            includes.push(script.clone());
-        }
-    }
-
-    // Convert patterns to absolute globbing targets
-    let mut matched_files = Vec::new();
-    for pattern in &includes {
-        // If there's no directory prefix (e.g. *.qmd), it should only match at the root.
-        let is_root_only = !pattern.contains('/');
-        let target_pattern = if is_root_only {
-            project_root.join(pattern).to_string_lossy().to_string()
-        } else {
-            project_root.join(pattern).to_string_lossy().to_string()
-        };
-
-        let paths = glob::glob(&target_pattern)
-            .map_err(|e| format!("Invalid glob pattern '{}': {}", target_pattern, e))?;
-
-        for entry in paths {
-            if let Ok(path) = entry {
-                if path.is_file() {
-                    matched_files.push(path);
-                }
-            }
-        }
-    }
-
-    // Process excludes
     let mut final_files = Vec::new();
-    for file in matched_files {
-        let mut is_excluded = false;
-
-        for exclude in &excludes {
-            // Very simple matcher for excludes
-            let is_root_only = !exclude.contains('/');
-            let exclude_pattern = if is_root_only {
-                project_root.join(exclude).to_string_lossy().to_string()
-            } else {
-                project_root.join(exclude).to_string_lossy().to_string()
-            };
-
-            if let Ok(ex_pattern) = glob::Pattern::new(&exclude_pattern) {
-                if ex_pattern.matches_path(&file) {
-                    is_excluded = true;
-                    break;
-                }
-            }
-        }
-
-        if !is_excluded {
-            if !final_files.contains(&file) {
-                final_files.push(file);
-            }
+    for entry in walker {
+        let entry = entry.map_err(|e| anyhow::anyhow!("Walker entry error: {}", e))?;
+        if entry.file_type().is_file() {
+            let path = camino::Utf8PathBuf::try_from(entry.into_path())
+                .map_err(|_| anyhow::anyhow!("Path contains invalid UTF-8"))?;
+            final_files.push(path);
         }
     }
 
-    // Keep the relative order of elements provided in build.scripts roughly based on include pattern order.
-    // As multiple patterns might overlap, we just filter unique ordered by first match.
     Ok(final_files)
 }
 
@@ -796,44 +746,40 @@ fn rewrite_bookdown_yml(project_root: &Path, rmd_files: &[PathBuf]) -> Result<()
 /// Evaluates Path B: Fallback Automated Auto-Discovery
 ///
 /// Sweeps for `.qmd`, `.Rmd`, `.R`, `.py` in that strict order.
-pub(crate) fn resolve_fallback_scripts(project_root: &Path) -> Result<Vec<PathBuf>, String> {
+pub(crate) fn resolve_fallback_scripts(project_root: &camino::Utf8Path) -> anyhow::Result<Vec<camino::Utf8PathBuf>> {
     let mut files = Vec::new();
 
-    // Shallow directory sweep
-    if let Ok(entries) = fs::read_dir(project_root) {
-        let mut qmd = Vec::new();
-        let mut rmd = Vec::new();
-        let mut r = Vec::new();
-        let mut py = Vec::new();
+    let walker = globwalk::GlobWalkerBuilder::from_patterns(project_root.as_std_path(), &["*.qmd", "*.Rmd", "*.R", "*.py"])
+        .max_depth(1)
+        .follow_links(true)
+        .build()
+        .map_err(|e| anyhow::anyhow!("Walker initialization error: {}", e))?;
 
-        for entry in entries.flatten() {
-            if let Ok(file_type) = entry.file_type() {
-                if file_type.is_file() {
-                    let path = entry.path();
-                    if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-                        match ext {
-                            "qmd" => qmd.push(path),
-                            "Rmd" => rmd.push(path),
-                            "R" => r.push(path),
-                            "py" => py.push(path),
-                            _ => {}
-                        }
-                    }
+    let mut qmd = Vec::new();
+    let mut rmd = Vec::new();
+    let mut r = Vec::new();
+    let mut py = Vec::new();
+
+    for entry in walker {
+        let entry = entry.map_err(|e| anyhow::anyhow!("Walker entry error: {}", e))?;
+        if entry.file_type().is_file() {
+            let path = camino::Utf8PathBuf::try_from(entry.into_path())
+                .map_err(|_| anyhow::anyhow!("Filename contains invalid UTF-8"))?;
+
+            if let Some(ext) = path.extension() {
+                match ext {
+                    "qmd" => qmd.push(path),
+                    "Rmd" | "rmd" => rmd.push(path),
+                    "R" | "r" => r.push(path),
+                    "py" => py.push(path),
+                    _ => {}
                 }
             }
         }
-
-        // Sort alphabetically to be deterministic
-        qmd.sort();
-        rmd.sort();
-        r.sort();
-        py.sort();
-
-        files.extend(qmd);
-        files.extend(rmd);
-        files.extend(r);
-        files.extend(py);
     }
+
+    qmd.sort(); rmd.sort(); r.sort(); py.sort();
+    files.extend(qmd); files.extend(rmd); files.extend(r); files.extend(py);
 
     Ok(files)
 }
