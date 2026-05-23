@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use camino::Utf8Path;
 
 /// A Scoped Transaction guard for environment variables.
 ///
@@ -12,7 +12,7 @@ use std::path::Path;
 ///
 /// ```rust
 /// use proj::env::EnvGuard;
-/// use std::path::Path;
+/// use camino::Utf8Path;
 ///
 /// let mut guard = EnvGuard::new();
 /// guard.track_and_set("DUMMY_VAR_TEST", "123");
@@ -101,7 +101,7 @@ impl EnvGuard {
 
     /// Loads environment variables from the given file, setting them via `track_and_set`
     /// only if they are not already set in the current process.
-    pub fn load_file(&mut self, path: &Path) {
+    pub fn load_file(&mut self, path: &Utf8Path) {
         if let Ok(file) = File::open(path) {
             let reader = BufReader::new(file);
             for line in reader.lines().flatten() {
@@ -115,7 +115,7 @@ impl EnvGuard {
     }
 
     /// Commences an environment block, parsing profiles and backing up state.
-    pub fn activate(explicit_profile: Option<&str>, base_dir: &Path) -> anyhow::Result<Self> {
+    pub fn activate(explicit_profile: Option<&str>, base_dir: &Utf8Path) -> anyhow::Result<Self> {
         let mut guard = Self::new();
 
         // Temporarily handle PROJR_PROFILE swap if explicitly overridden for this build run
@@ -148,7 +148,7 @@ impl EnvGuard {
                 if file == local_env_file {
                     // Automatically add _environment.local to ignores
                     let _ = crate::ignore::add_manual_ignores(
-                        base_dir,
+                        base_dir.as_std_path(),
                         &["_environment.local".to_string()],
                         true,
                         crate::ignore::IgnoreType::All,

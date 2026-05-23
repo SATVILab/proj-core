@@ -62,7 +62,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
     // ==========================================
     // STEP A: Activate Environment Guard
     // ==========================================
-    let _env_guard = crate::env::EnvGuard::activate(cli_profile, project_root.as_std_path()).map_err(|e| format!("{:#}", e))?;
+    let _env_guard = crate::env::EnvGuard::activate(cli_profile, project_root).map_err(|e| format!("{:#}", e))?;
 
     // ==========================================
     // STEP B: Pre-Build Validation & Execution
