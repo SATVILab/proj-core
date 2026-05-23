@@ -1,5 +1,6 @@
+
 use std::env;
-use std::path::PathBuf;
+
 use std::fs;
 use crate::yml::{ValidatedConfig, IgnoreConfig};
 
@@ -33,7 +34,7 @@ impl Default for IgnoreType {
 /// the target physical directory doesn't have required permission layers.
 ///
 /// ```rust
-/// use std::path::PathBuf;
+///
 /// use std::collections::HashMap;
 /// use tempfile::TempDir;
 /// use proj::yml::{ValidatedConfig, ResolvedDir, IgnoreConfig};
@@ -61,11 +62,11 @@ impl Default for IgnoreType {
 ///     old_dev_remove: None,
 ///     parameters: Default::default()
 /// };
-/// update_ignores_for(&root, &validated).unwrap();
+/// update_ignores_for(camino::Utf8Path::from_path(&root).unwrap(), &validated).unwrap();
 ///
 /// assert!(root.join(".gitignore").exists());
 /// ```
-pub fn update_ignores_for(project_root: &std::path::Path, validated: &ValidatedConfig) -> anyhow::Result<()> {
+pub fn update_ignores_for(project_root: &camino::Utf8Path, validated: &ValidatedConfig) -> anyhow::Result<()> {
     let mut git_ignores = Vec::new();
     let mut rbuild_ignores = Vec::new();
 
@@ -129,7 +130,7 @@ pub fn update_ignores_for(project_root: &std::path::Path, validated: &ValidatedC
     Ok(())
 }
 
-fn update_ignore_file(path: &std::path::Path, ignores: &[String]) -> anyhow::Result<()> {
+fn update_ignore_file(path: &camino::Utf8Path, ignores: &[String]) -> anyhow::Result<()> {
     let start_marker = "# --- PROJ MANAGED ---";
     let end_marker = "# --- END PROJ MANAGED ---";
 
@@ -210,10 +211,10 @@ fn update_ignore_file(path: &std::path::Path, ignores: &[String]) -> anyhow::Res
 /// let temp = TempDir::new().unwrap();
 /// fs::write(temp.path().join("VERSION"), "v1.0.0").unwrap();
 ///
-/// let result = root_from(temp.path()).unwrap();
+/// let result = root_from(camino::Utf8Path::from_path(temp.path()).unwrap()).unwrap();
 /// assert!(result.exists());
 /// ```
-pub fn root_from(start_path: &std::path::Path) -> Option<PathBuf> {
+pub fn root_from(start_path: &camino::Utf8Path) -> Option<camino::Utf8PathBuf> {
     let mut current_path = start_path;
 
     let first_version_dir;
@@ -265,9 +266,9 @@ pub fn root_from(start_path: &std::path::Path) -> Option<PathBuf> {
 /// use proj::ignore::root;
 /// let result = root();
 /// ```
-pub fn root() -> Option<PathBuf> {
+pub fn root() -> Option<camino::Utf8PathBuf> {
     let current_dir = env::current_dir().ok()?;
-    root_from(&current_dir)
+    root_from(camino::Utf8Path::from_path(&current_dir)?)
 }
 
 /// Thin production wrapper: synchronizes ignore rules dynamically across `.gitignore` and `.Rbuildignore`.
@@ -280,12 +281,12 @@ pub fn root() -> Option<PathBuf> {
 /// use proj::ignore::update_ignores;
 /// update_ignores(project_root, validated_config).unwrap();
 /// ```
-pub fn update_ignores(project_root: &std::path::Path, validated: &ValidatedConfig) -> anyhow::Result<()> {
+pub fn update_ignores(project_root: &camino::Utf8Path, validated: &ValidatedConfig) -> anyhow::Result<()> {
     update_ignores_for(project_root, validated)
 }
 
 /// Classifies a path string based on disk status and trailing slash.
-fn is_directory(path_str: &str, project_root: &std::path::Path) -> bool {
+fn is_directory(path_str: &str, project_root: &camino::Utf8Path) -> bool {
     if path_str.ends_with('/') {
         return true;
     }
@@ -347,7 +348,7 @@ fn format_unignore_rbuildignore_path(path_str: &str, is_dir: bool) -> Vec<String
 ///
 /// Modifies the ignore file by appending user-specified manual exclusions
 /// strictly above the `# --- PROJ MANAGED ---` block, ensuring separating whitespace.
-fn append_manual_ignores(path: &std::path::Path, ignores: &[String]) -> anyhow::Result<()> {
+fn append_manual_ignores(path: &camino::Utf8Path, ignores: &[String]) -> anyhow::Result<()> {
     if ignores.is_empty() {
         return Ok(());
     }
@@ -428,7 +429,7 @@ fn append_manual_ignores(path: &std::path::Path, ignores: &[String]) -> anyhow::
 ///
 /// Modifies the ignore file by appending user-specified manual negations
 /// strictly below the `# --- END PROJ MANAGED ---` block.
-fn append_unignores(path: &std::path::Path, ignores: &[String]) -> anyhow::Result<()> {
+fn append_unignores(path: &camino::Utf8Path, ignores: &[String]) -> anyhow::Result<()> {
     if ignores.is_empty() {
         return Ok(());
     }
@@ -536,14 +537,14 @@ fn append_unignores(path: &std::path::Path, ignores: &[String]) -> anyhow::Resul
 /// let root = temp.path().to_path_buf();
 /// fs::write(root.join(".gitignore"), "# --- PROJ MANAGED ---\n").unwrap();
 ///
-/// add_manual_ignores(&root, &["temp.log".to_string()], true, IgnoreType::Git).unwrap();
+/// add_manual_ignores(camino::Utf8Path::from_path(&root).unwrap(), &["temp.log".to_string()], true, IgnoreType::Git).unwrap();
 ///
 /// let contents = fs::read_to_string(root.join(".gitignore")).unwrap();
 /// assert!(contents.contains("temp.log"));
 /// assert!(contents.contains("# --- PROJ MANAGED ---"));
 /// ```
 pub fn add_manual_ignores(
-    project_root: &std::path::Path,
+    project_root: &camino::Utf8Path,
     paths: &[String],
     force_create: bool,
     ignore_type: IgnoreType
@@ -610,7 +611,7 @@ pub fn add_manual_ignores(
 /// let root = temp.path().to_path_buf();
 /// fs::write(root.join(".gitignore"), "# --- PROJ MANAGED ---\n# --- END PROJ MANAGED ---\n").unwrap();
 ///
-/// remove_manual_ignores(&root, &["!!temp.log".to_string()], IgnoreType::Git).unwrap();
+/// remove_manual_ignores(camino::Utf8Path::from_path(&root).unwrap(), &["!!temp.log".to_string()], IgnoreType::Git).unwrap();
 ///
 /// let contents = fs::read_to_string(root.join(".gitignore")).unwrap();
 /// assert!(contents.contains("!temp.log"));
@@ -618,7 +619,7 @@ pub fn add_manual_ignores(
 /// assert!(contents.find("# --- END PROJ MANAGED ---").unwrap() < contents.find("!temp.log").unwrap());
 /// ```
 pub fn remove_manual_ignores(
-    project_root: &std::path::Path,
+    project_root: &camino::Utf8Path,
     paths: &[String],
     ignore_type: IgnoreType
 ) -> anyhow::Result<()> {

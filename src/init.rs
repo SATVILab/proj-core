@@ -150,7 +150,7 @@ pub fn init_directories() -> Result<(), String> {
 
     let r_dir = project_root.join("R");
     if !r_dir.exists() {
-        println!("Creating directory: {}", r_dir.display());
+        println!("Creating directory: {}", r_dir);
         fs::create_dir_all(&r_dir).map_err(|e| format!("Failed to create R directory: {}", e))?;
     } else {
         println!("Directory already exists: R");

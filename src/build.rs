@@ -44,13 +44,13 @@ use crate::yml::{yml_read_from, GlobalConfig};
 use crate::build_pre::run_pre_flight_checks;
 
 pub fn post_build_sync(config: &GlobalConfig, repo_dir: camino::Utf8PathBuf) -> Result<(), String> {
-    let provider = create_git_provider(config.git.engine, repo_dir.into_std_path_buf())?;
+    let provider = create_git_provider(config.git.engine, repo_dir).map_err(|e| e.to_string())?;
 
     println!("Staging build artifacts and committing mutations...");
-    provider.commit_all("chore: automated workspace build update [compiled asset tracking]")?;
+    provider.commit_all("chore: automated workspace build update [compiled asset tracking]").map_err(|e| e.to_string())?;
 
     println!("Pushing local branch mutations to remote host...");
-    provider.push("origin", "main")?;
+    provider.push("origin", "main").map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -76,7 +76,8 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
         if !is_git_installed() {
             return Err("Git is required for commit but not found on system PATH.".to_string());
         }
-        check_git_profile(Some(project_root.as_std_path()))?;
+        // TODO: migrate to camino
+        check_git_profile(Some(project_root)).map_err(|e| e.to_string())?;
     }
 
     // 3. Resolve configs and hooks
@@ -302,7 +303,8 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
 
     // 6. Git Pre-Snapshot
     if config.git.commit {
-        git_commit_all("Snapshot pre-build", Some(project_root.as_std_path()))?;
+        // TODO: migrate to camino
+        git_commit_all("Snapshot pre-build", Some(project_root)).map_err(|e| e.to_string())?;
     }
 
     // ==========================================
@@ -391,8 +393,9 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
                 };
 
                 // Use the new Git Provider to commit
-                let provider = create_git_provider(config.config.git.engine, project_root.as_std_path().to_path_buf())?;
-                provider.commit_all(&final_message)?;
+                let provider = // TODO: migrate to camino
+                create_git_provider(config.config.git.engine, project_root.to_path_buf()).map_err(|e| e.to_string())?;
+                provider.commit_all(&final_message).map_err(|e| e.to_string())?;
             }
 
             // Execute Post-Build Hooks (after post-build commit, before push)
