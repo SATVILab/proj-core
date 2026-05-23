@@ -593,7 +593,7 @@ pub fn yml_read_from(project_root: &Utf8Path, is_dev: bool) -> anyhow::Result<Va
     let combined_val = get_combined_yml(None, project_root)?;
     let config: ProjConfig = serde_json::from_value(combined_val).context("Operation failed")?;
     let validated = config.validate_and_resolve(project_root, is_dev)?;
-    update_ignores(project_root.as_std_path(), &validated).context("Operation failed")?;
+    update_ignores(project_root, &validated).context("Operation failed")?;
     Ok(validated)
 }
 
