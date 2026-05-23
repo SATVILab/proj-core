@@ -311,37 +311,37 @@ fn main() {
         Commands::Init { command } => match command {
             Some(InitCommands::Version) => {
                 if let Err(e) = proj::init_version() {
-                    eprintln!("Initialization failed: {}", e);
+                    eprintln!("Initialization failed: {:#}", e);
                 }
             }
             Some(InitCommands::Directories) => {
                 if let Err(e) = proj::init_directories() {
-                    eprintln!("Initialization failed: {}", e);
+                    eprintln!("Initialization failed: {:#}", e);
                 }
             }
             Some(InitCommands::Readme { title, description }) => {
                 if let Err(e) = proj::init_readme(title.clone(), description.clone()) {
-                    eprintln!("Initialization failed: {}", e);
+                    eprintln!("Initialization failed: {:#}", e);
                 }
             }
             Some(InitCommands::License { license, first_name, last_name }) => {
                 if let Err(e) = proj::init_license(license.clone(), first_name.clone(), last_name.clone()) {
-                    eprintln!("Initialization failed: {}", e);
+                    eprintln!("Initialization failed: {:#}", e);
                 }
             }
             Some(InitCommands::Git { commit }) => {
                 if let Err(e) = proj::init_git(*commit) {
-                    eprintln!("Initialization failed: {}", e);
+                    eprintln!("Initialization failed: {:#}", e);
                 }
             }
             Some(InitCommands::Github { public }) => {
                 if let Err(e) = proj::init_github(*public) {
-                    eprintln!("Initialization failed: {}", e);
+                    eprintln!("Initialization failed: {:#}", e);
                 }
             }
             None => {
                 if let Err(e) = proj::init_full() {
-                    eprintln!("Initialization failed: {}", e);
+                    eprintln!("Initialization failed: {:#}", e);
                 }
             }
         },
