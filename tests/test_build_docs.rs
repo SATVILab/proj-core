@@ -18,7 +18,7 @@ fn test_dir_move_exact_protects_files() {
     fs::write(dest.join("CHANGELOG.md"), "changelog").unwrap();
     fs::write(dest.join(".gitignore"), "ignore").unwrap();
 
-    dir_move_exact(&src, &dest).unwrap();
+    dir_move_exact(&camino::Utf8PathBuf::try_from(src.clone()).unwrap(), &camino::Utf8PathBuf::try_from(dest.clone()).unwrap()).unwrap();
 
     assert!(dest.join("new_file.txt").exists());
     assert!(!dest.join("old_file.txt").exists());
