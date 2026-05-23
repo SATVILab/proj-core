@@ -45,7 +45,7 @@ impl Default for IgnoreType {
 /// use proj::yml::{ResolvedGitConfig, RestrictionsConfig, GlobalConfig};
 /// let mut dirs = HashMap::new();
 /// dirs.insert("raw".to_string(), ResolvedDir {
-///     path: root.join("_raw"),
+///     path: camino::Utf8PathBuf::from_path_buf(root.join("_raw")).unwrap(),
 ///     ignore: IgnoreConfig::Single("all".to_string())
 /// });
 ///
@@ -86,13 +86,13 @@ pub fn update_ignores_for(project_root: &std::path::Path, validated: &ValidatedC
         if should_git || should_rbuild {
             let path_str_opt = if dir.path.is_absolute() {
                 // Only process if it is within the project root
-                if let Ok(rel_path) = dir.path.strip_prefix(project_root) {
-                    Some(rel_path.to_string_lossy().to_string())
+                if let Ok(rel_path) = dir.path.strip_prefix(camino::Utf8Path::from_path(project_root).unwrap()) {
+                    Some(rel_path.as_str().to_string())
                 } else {
                     None
                 }
             } else {
-                Some(dir.path.to_string_lossy().to_string())
+                Some(dir.path.as_str().to_string())
             };
 
             if let Some(path_str) = path_str_opt {

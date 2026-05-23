@@ -109,7 +109,7 @@ build:
     let base_dir_utf8 = camino::Utf8PathBuf::try_from(base_dir.to_path_buf()).unwrap();
 
     // Passing explicit profile to avoid env var race conditions during parallel tests
-    let combined = get_combined_yml(Some("stage, theme"), base_dir_utf8.as_std_path()).unwrap();
+    let combined = get_combined_yml(Some("stage, theme"), &base_dir_utf8).unwrap();
 
     // Precedence: Local > Profile > Base
     // dest: stage_remote (from stage)

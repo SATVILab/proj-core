@@ -1,6 +1,7 @@
+use anyhow::Context;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use std::fs;
 use serde_json::Value;
 use crate::ignore::{root, update_ignores};
@@ -42,7 +43,7 @@ pub enum InspectStrategy {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct LocalRemoteConfig {
-    pub path: PathBuf,
+    pub path: Utf8PathBuf,
     pub structure: StorageStructure,
     pub content: Vec<String>,
     pub inspect: InspectStrategy,
@@ -200,7 +201,7 @@ pub struct ResolvedGitConfig {
 /// ```
 #[derive(Deserialize, Debug, Clone)]
 pub struct DirConfig {
-    pub path: Option<PathBuf>,
+    pub path: Option<Utf8PathBuf>,
     #[serde(default = "default_ignore")]
     pub ignore: IgnoreConfig,
 }
@@ -274,13 +275,13 @@ pub struct ValidatedConfig {
 /// Holds the final calculated path alongside its resolved `IgnoreConfig` rule set.
 ///
 /// ```rust
-/// use std::path::PathBuf;
+/// use camino::{Utf8Path, Utf8PathBuf};
 /// use proj::yml::{ResolvedDir, IgnoreConfig};
-/// let resolved = ResolvedDir { path: PathBuf::from("_raw"), ignore: IgnoreConfig::Single("all".to_string()) };
+/// let resolved = ResolvedDir { path: Utf8PathBuf::from("_raw"), ignore: IgnoreConfig::Single("all".to_string()) };
 /// ```
 #[derive(Debug)]
 pub struct ResolvedDir {
-    pub path: PathBuf,
+    pub path: Utf8PathBuf,
     pub ignore: IgnoreConfig,
 }
 
@@ -297,12 +298,12 @@ impl ProjConfig {
     ///
     /// ```rust
     /// use proj::yml::ProjConfig;
-    /// use std::path::PathBuf;
+    /// use camino::{Utf8Path, Utf8PathBuf};
     /// let config = ProjConfig::default();
-    /// let validated = config.validate_and_resolve(&PathBuf::from("."), false).unwrap();
+    /// let validated = config.validate_and_resolve(&Utf8PathBuf::from("."), false).unwrap();
     /// assert!(validated.directories.contains_key("raw"));
     /// ```
-    pub fn validate_and_resolve(&self, project_root: &std::path::Path, is_dev: bool) -> Result<ValidatedConfig, String> {
+    pub fn validate_and_resolve(&self, project_root: &Utf8Path, is_dev: bool) -> anyhow::Result<ValidatedConfig> {
         let mut resolved = HashMap::new();
 
         // 0. Validate Structural Constraints
@@ -310,11 +311,11 @@ impl ProjConfig {
             if let Some(remotes) = &self.remotes.local {
                 for dest_tag in dest {
                     if !remotes.contains_key(dest_tag) {
-                        return Err(format!("Build destination target '{}' is not registered in remotes.local inventory.", dest_tag));
+                        anyhow::bail!("Build destination target '{}' is not registered in remotes.local inventory.", dest_tag);
                     }
                 }
             } else {
-                 return Err("build.dest contains targets but remotes.local is completely undefined.".to_string());
+                 anyhow::bail!("build.dest contains targets but remotes.local is completely undefined.");
             }
         }
 
@@ -328,21 +329,21 @@ impl ProjConfig {
                 && !lower_label.starts_with("output")
                 && !lower_label.starts_with("docs")
             {
-                return Err(format!(
+                anyhow::bail!(
                     "Invalid directory label '{}' found in _proj.yml. \
                     All custom labels must begin with 'raw', 'output', 'docs', or 'cache'.",
                     label
-                ));
+                );
             }
 
             // Fallback to defaults if 'path' key is omitted under a validated label
             let path = match &config.path {
                 Some(p) => p.clone(),
                 None => match () {
-                    _ if lower_label.starts_with("cache") => PathBuf::from("_tmp"),
-                    _ if lower_label.starts_with("raw") => PathBuf::from("_raw"),
-                    _ if lower_label.starts_with("output") => PathBuf::from("_output"),
-                    _ if lower_label.starts_with("docs") => PathBuf::from("docs"),
+                    _ if lower_label.starts_with("cache") => Utf8PathBuf::from("_tmp"),
+                    _ if lower_label.starts_with("raw") => Utf8PathBuf::from("_raw"),
+                    _ if lower_label.starts_with("output") => Utf8PathBuf::from("_output"),
+                    _ if lower_label.starts_with("docs") => Utf8PathBuf::from("docs"),
                     _ => unreachable!(),
                 }
             };
@@ -366,7 +367,7 @@ impl ProjConfig {
             let exists = resolved.keys().any(|k| k.to_lowercase() == base_key);
             if !exists {
                 resolved.insert(base_key.to_string(), ResolvedDir {
-                    path: PathBuf::from(default_path),
+                    path: Utf8PathBuf::from(default_path),
                     ignore: default_ignore(),
                 });
             }
@@ -399,7 +400,7 @@ impl ProjConfig {
         }
 
         if resolved_git.push && !resolved_git.commit {
-            return Err("Configuration error: 'push' cannot be true if 'commit' is false.".to_string());
+            anyhow::bail!("Configuration error: 'push' cannot be true if 'commit' is false.");
         }
 
         Ok(ValidatedConfig {
@@ -428,13 +429,13 @@ impl ValidatedConfig {
     /// Returns an error if the requested label completely fails prefix structural checks.
     ///
     /// ```rust
-    /// use std::path::PathBuf;
+    /// use camino::{Utf8Path, Utf8PathBuf};
     /// use std::collections::HashMap;
     /// use proj::yml::{ValidatedConfig, ResolvedDir, IgnoreConfig, ResolvedGitConfig, RestrictionsConfig, GlobalConfig};
     ///
     /// let mut dirs = HashMap::new();
     /// dirs.insert("raw".to_string(), ResolvedDir {
-    ///     path: PathBuf::from("_raw"),
+    ///     path: Utf8PathBuf::from("_raw"),
     ///     ignore: IgnoreConfig::Single("all".to_string())
     /// });
     ///
@@ -450,10 +451,10 @@ impl ValidatedConfig {
     ///     old_dev_remove: None,
     ///     parameters: Default::default()
     /// };
-    /// let path = config.get_path(&PathBuf::from("/mock/root"), "raw-data").unwrap();
-    /// assert_eq!(path, PathBuf::from("/mock/root/_raw/data"));
+    /// let path = config.get_path(&Utf8PathBuf::from("/mock/root"), "raw-data").unwrap();
+    /// assert_eq!(path, Utf8PathBuf::from("/mock/root/_raw/data"));
     /// ```
-    pub fn get_path(&self, project_root: &std::path::Path, label: &str) -> Result<PathBuf, String> {
+    pub fn get_path(&self, project_root: &Utf8Path, label: &str) -> anyhow::Result<Utf8PathBuf> {
         // Rule A: Check for an exact matching key in the map
         if let Some(dir) = self.directories.get(label) {
             return Ok(make_absolute(project_root, &dir.path));
@@ -494,12 +495,12 @@ impl ValidatedConfig {
 
             Ok(make_absolute(project_root, &resolved_path))
         } else {
-            Err(format!("Requested label '{}' does not match any valid structural prefix.", label))
+            anyhow::bail!("Requested label '{}' does not match any valid structural prefix.", label)
         }
     }
 }
 
-fn make_absolute(root: &std::path::Path, path: &std::path::Path) -> PathBuf {
+fn make_absolute(root: &Utf8Path, path: &Utf8Path) -> Utf8PathBuf {
     if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -539,22 +540,22 @@ pub fn yml_get_filter_top_level(value: Value) -> Value {
 }
 
 /// Pipeline coordinator to merge `_proj.yml`, active profiles, and `_projr-local.yml`.
-pub fn get_combined_yml(explicit_profile: Option<&str>, base_dir: &std::path::Path) -> Result<Value, String> {
+pub fn get_combined_yml(explicit_profile: Option<&str>, base_dir: &Utf8Path) -> anyhow::Result<Value> {
     let base_path = base_dir.join("_proj.yml");
     let mut base_val = if base_path.exists() {
-        let content = fs::read_to_string(&base_path).map_err(|e| e.to_string())?;
+        let content = fs::read_to_string(base_path.as_std_path()).context("Operation failed")?;
 
         // Multi-alias conflict safeguard
-        let raw_yaml: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+        let raw_yaml: serde_yaml::Value = serde_yaml::from_str(&content).context("Operation failed")?;
         if let serde_yaml::Value::Mapping(map) = &raw_yaml {
             let aliases = ["parameters", "parameter", "params", "param"];
             let found_count = aliases.iter().filter(|&a| map.contains_key(&serde_yaml::Value::String(a.to_string()))).count();
             if found_count > 1 {
-                return Err("Configuration error: multiple 'parameters' aliases found in _proj.yml.".to_string());
+                anyhow::bail!("Configuration error: multiple 'parameters' aliases found in _proj.yml.");
             }
         }
 
-        let json_val: Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+        let json_val: Value = serde_yaml::from_str(&content).context("Operation failed")?;
         json_val
     } else {
         Value::Object(serde_json::Map::new())
@@ -572,27 +573,27 @@ pub fn get_combined_yml(explicit_profile: Option<&str>, base_dir: &std::path::Pa
     for p in profiles {
         let profile_path = base_dir.join(format!("_projr-{}.yml", p));
         if profile_path.exists() {
-            let content = fs::read_to_string(&profile_path).map_err(|e| e.to_string())?;
-            let yaml_val: Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+            let content = fs::read_to_string(profile_path.as_std_path()).context("Operation failed")?;
+            let yaml_val: Value = serde_yaml::from_str(&content).context("Operation failed")?;
             base_val = deep_merge(base_val, yaml_val);
         }
     }
 
     let local_path = base_dir.join("_projr-local.yml");
     if local_path.exists() {
-        let content = fs::read_to_string(&local_path).map_err(|e| e.to_string())?;
-        let yaml_val: Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+        let content = fs::read_to_string(local_path.as_std_path()).context("Operation failed")?;
+        let yaml_val: Value = serde_yaml::from_str(&content).context("Operation failed")?;
         base_val = deep_merge(base_val, yaml_val);
     }
 
     Ok(yml_get_filter_top_level(base_val))
 }
 
-pub fn yml_read_from(project_root: &std::path::Path, is_dev: bool) -> Result<ValidatedConfig, String> {
+pub fn yml_read_from(project_root: &Utf8Path, is_dev: bool) -> anyhow::Result<ValidatedConfig> {
     let combined_val = get_combined_yml(None, project_root)?;
-    let config: ProjConfig = serde_json::from_value(combined_val).map_err(|e| e.to_string())?;
+    let config: ProjConfig = serde_json::from_value(combined_val).context("Operation failed")?;
     let validated = config.validate_and_resolve(project_root, is_dev)?;
-    update_ignores(project_root, &validated).map_err(|e| format!("{:#}", e))?;
+    update_ignores(project_root.as_std_path(), &validated).context("Operation failed")?;
     Ok(validated)
 }
 
@@ -620,14 +621,14 @@ pub fn get_parameter(validated: &ValidatedConfig, keys: &[&str]) -> Option<serde
 }
 
 /// Scans the target configuration file and injects an empty parameters block if missing.
-pub fn add_empty_parameters_block(project_root: &std::path::Path) -> Result<bool, String> {
+pub fn add_empty_parameters_block(project_root: &Utf8Path) -> anyhow::Result<bool> {
     let yml_path = project_root.join("_proj.yml");
     if !yml_path.exists() {
         return Ok(false);
     }
 
-    let content = fs::read_to_string(&yml_path).map_err(|e| e.to_string())?;
-    let raw_value: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+    let content = fs::read_to_string(yml_path.as_std_path()).context("Operation failed")?;
+    let raw_value: serde_yaml::Value = serde_yaml::from_str(&content).context("Operation failed")?;
 
     if let serde_yaml::Value::Mapping(mut map) = raw_value {
         let aliases = ["parameters", "parameter", "params", "param"];
@@ -642,8 +643,8 @@ pub fn add_empty_parameters_block(project_root: &std::path::Path) -> Result<bool
             serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
         );
 
-        let new_content = serde_yaml::to_string(&map).map_err(|e| e.to_string())?;
-        fs::write(&yml_path, new_content).map_err(|e| e.to_string())?;
+        let new_content = serde_yaml::to_string(&map).context("Operation failed")?;
+        fs::write(yml_path.as_std_path(), new_content).context("Operation failed")?;
         Ok(true)
     } else {
         let mut map = serde_yaml::Mapping::new();
@@ -651,14 +652,15 @@ pub fn add_empty_parameters_block(project_root: &std::path::Path) -> Result<bool
             serde_yaml::Value::String("parameters".to_string()),
             serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
         );
-        let new_content = serde_yaml::to_string(&map).map_err(|e| e.to_string())?;
-        fs::write(&yml_path, new_content).map_err(|e| e.to_string())?;
+        let new_content = serde_yaml::to_string(&map).context("Operation failed")?;
+        fs::write(yml_path.as_std_path(), new_content).context("Operation failed")?;
         Ok(true)
     }
 }
 
-pub fn yml_read(is_dev: bool) -> Result<ValidatedConfig, String> {
-    let project_root = root().ok_or("Could not find project root")?;
+pub fn yml_read(is_dev: bool) -> anyhow::Result<ValidatedConfig> {
+    let project_root = root().context("Could not find project root")?;
+    let project_root = Utf8PathBuf::try_from(project_root).context("Project root is not valid UTF-8")?;
     yml_read_from(&project_root, is_dev)
 }
 
@@ -736,7 +738,7 @@ params:
   key2: val2
 ";
         fs::write(root_path.join("_proj.yml"), yaml_conflict).unwrap();
-        let result = yml_read_from(root_path, false);
+        let result = yml_read_from(camino::Utf8Path::from_path(root_path).unwrap(), false);
         assert!(result.is_err());
     }
 }

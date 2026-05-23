@@ -133,7 +133,7 @@ fn test_verify_remote_integrity() {
 
     let mut remotes = HashMap::new();
     remotes.insert("my_remote".to_string(), LocalRemoteConfig {
-        path: cas_remote_root.clone(),
+        path: camino::Utf8PathBuf::from_path_buf(cas_remote_root.clone()).unwrap(),
         structure: StorageStructure::Cas,
         content: vec!["raw".to_string()],
         inspect: InspectStrategy::Manifest,

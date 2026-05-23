@@ -217,8 +217,8 @@ fn main() {
                 match proj::yml_read(false) {
                     Ok(config) => {
                         if let Some(root) = proj::root() {
-                            match config.get_path(&root, label) {
-                                Ok(path) => println!("{}", path.display()),
+                            match config.get_path(camino::Utf8Path::from_path(&root).unwrap(), label) {
+                                Ok(path) => println!("{}", path),
                                 Err(e) => eprintln!("Error getting path: {}", e),
                             }
                         } else {
