@@ -1,4 +1,5 @@
 use std::fs;
+use anyhow::Context;
 use camino::{Utf8Path, Utf8PathBuf};
 use crate::yml::ValidatedConfig;
 
@@ -21,18 +22,18 @@ pub fn clear_old(
     for entry in fs::read_dir(base_path.as_std_path())? {
         let entry = entry?;
         let entry_path = Utf8PathBuf::try_from(entry.path())
-            .map_err(|_| anyhow::anyhow!("Non-UTF-8 path encountered"))?;
+            .context("Non-UTF-8 path encountered during base clear iteration")?;
 
         if entry.metadata()?.is_dir() {
             let dir_name_str = entry_path.file_name().unwrap_or("");
 
             if is_dev {
                 if dir_name_str != current_version {
-                    fs::remove_dir_all(&entry_path)?;
+                    fs::remove_dir_all(entry_path.as_std_path())?;
                 }
             } else {
                 if dir_name_str != "log" {
-                    fs::remove_dir_all(&entry_path)?;
+                    fs::remove_dir_all(entry_path.as_std_path())?;
                 }
             }
         }
@@ -58,15 +59,15 @@ pub fn clear_pre(
         for entry in fs::read_dir(versioned_cache_path.as_std_path())? {
             let entry = entry?;
             let entry_path = Utf8PathBuf::try_from(entry.path())
-                .map_err(|_| anyhow::anyhow!("Non-UTF-8 path encountered"))?;
+                .context("Non-UTF-8 path encountered during versioned cache clear")?;
             let name_str = entry_path.file_name().unwrap_or("");
 
             // Exclude 'old' and allow 'docs' to be cleared out during pre-build
             if name_str != "old" {
                 if entry.metadata()?.is_dir() {
-                    fs::remove_dir_all(&entry_path)?;
+                    fs::remove_dir_all(entry_path.as_std_path())?;
                 } else {
-                    fs::remove_file(&entry_path)?;
+                    fs::remove_file(entry_path.as_std_path())?;
                 }
             }
         }
@@ -98,12 +99,12 @@ pub fn clear_pre(
             for entry in fs::read_dir(safe_cache_path.as_std_path())? {
                 let entry = entry?;
                 let entry_path = Utf8PathBuf::try_from(entry.path())
-                    .map_err(|_| anyhow::anyhow!("Non-UTF-8 path encountered"))?;
+                    .context("Non-UTF-8 path encountered during safe cache clear")?;
 
                 if entry.metadata()?.is_dir() {
-                    fs::remove_dir_all(&entry_path)?;
+                    fs::remove_dir_all(entry_path.as_std_path())?;
                 } else {
-                    fs::remove_file(&entry_path)?;
+                    fs::remove_file(entry_path.as_std_path())?;
                 }
             }
         }
@@ -115,12 +116,12 @@ pub fn clear_pre(
                     for entry in fs::read_dir(unsafe_path.as_std_path())? {
                         let entry = entry?;
                         let entry_path = Utf8PathBuf::try_from(entry.path())
-                            .map_err(|_| anyhow::anyhow!("Non-UTF-8 path encountered"))?;
+                            .context("Non-UTF-8 path encountered during unsafe path clear")?;
 
                         if entry.metadata()?.is_dir() {
-                            fs::remove_dir_all(&entry_path)?;
+                            fs::remove_dir_all(entry_path.as_std_path())?;
                         } else {
-                            fs::remove_file(&entry_path)?;
+                            fs::remove_file(entry_path.as_std_path())?;
                         }
                     }
                 }
@@ -145,12 +146,12 @@ pub fn clear_post(
                 for entry in fs::read_dir(docs_path.as_std_path())? {
                     let entry = entry?;
                     let entry_path = Utf8PathBuf::try_from(entry.path())
-                        .map_err(|_| anyhow::anyhow!("Non-UTF-8 path encountered"))?;
+                        .context("Non-UTF-8 path encountered during docs clear")?;
 
                     if entry.metadata()?.is_dir() {
-                        fs::remove_dir_all(&entry_path)?;
+                        fs::remove_dir_all(entry_path.as_std_path())?;
                     } else {
-                        fs::remove_file(&entry_path)?;
+                        fs::remove_file(entry_path.as_std_path())?;
                     }
                 }
             }
@@ -166,12 +167,12 @@ pub fn clear_post(
                         for entry in fs::read_dir(unsafe_path.as_std_path())? {
                             let entry = entry?;
                             let entry_path = Utf8PathBuf::try_from(entry.path())
-                                .map_err(|_| anyhow::anyhow!("Non-UTF-8 path encountered"))?;
+                                .context("Non-UTF-8 path encountered during post output clear")?;
 
                             if entry.metadata()?.is_dir() {
-                                fs::remove_dir_all(&entry_path)?;
+                                fs::remove_dir_all(entry_path.as_std_path())?;
                             } else {
-                                fs::remove_file(&entry_path)?;
+                                fs::remove_file(entry_path.as_std_path())?;
                             }
                         }
                     }

@@ -1,5 +1,6 @@
 use std::fs;
 use camino::Utf8Path;
+use anyhow::Context;
 
 pub fn dir_move_exact(source: &Utf8Path, dest: &Utf8Path) -> anyhow::Result<()> {
     if !source.exists() {
@@ -11,9 +12,8 @@ pub fn dir_move_exact(source: &Utf8Path, dest: &Utf8Path) -> anyhow::Result<()> 
         if dest.is_dir() {
             if let Ok(entries) = fs::read_dir(dest.as_std_path()) {
                 for entry in entries.flatten() {
-                    let entry_path = entry.path();
-                    let entry_path_utf8 = camino::Utf8PathBuf::try_from(entry_path)
-                        .map_err(|e| anyhow::anyhow!("Non-UTF-8 path: {}", e))?;
+                    let entry_path_utf8 = camino::Utf8PathBuf::try_from(entry.path())
+                        .context("Encountered non-UTF-8 path during directory iteration")?;
 
                     let name_str = entry_path_utf8.file_name().unwrap_or("");
                     // Protected File Exclusion Guard
@@ -21,9 +21,9 @@ pub fn dir_move_exact(source: &Utf8Path, dest: &Utf8Path) -> anyhow::Result<()> 
                         continue;
                     }
                     if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
-                        fs::remove_dir_all(entry.path())?;
+                        fs::remove_dir_all(entry_path_utf8.as_std_path())?;
                     } else {
-                        fs::remove_file(entry.path())?;
+                        fs::remove_file(entry_path_utf8.as_std_path())?;
                     }
                 }
             }
@@ -51,9 +51,8 @@ pub fn copy_dir_recursive(src: &Utf8Path, dst: &Utf8Path) -> anyhow::Result<()> 
         let entry = entry?;
         let ty = entry.file_type()?;
 
-        let entry_path = entry.path();
-        let entry_path_utf8 = camino::Utf8PathBuf::try_from(entry_path)
-            .map_err(|e| anyhow::anyhow!("Non-UTF-8 path: {}", e))?;
+        let entry_path_utf8 = camino::Utf8PathBuf::try_from(entry.path())
+            .context("Encountered non-UTF-8 path during directory copy iteration")?;
 
         let dest_path = dst.join(entry_path_utf8.file_name().unwrap());
 
