@@ -63,6 +63,7 @@ use anyhow::Result;
 use std::fs::{self, File};
 use std::io::{self, Write, Read};
 use chrono::Utc;
+use anyhow::Context;
 use tempfile::NamedTempFile;
 
 /// Computes the BLAKE3 hash of a file's contents.
@@ -189,7 +190,7 @@ pub fn ingest_directory(
             for entry in fs::read_dir(dir.as_std_path())? {
                 let entry = entry?;
                 let path = camino::Utf8PathBuf::try_from(entry.path())
-                    .map_err(|_| anyhow::anyhow!("File system path is not valid UTF-8: {:?}", entry.path()))?;
+                    .context("File system path is not valid UTF-8.")?;
 
                 if path.is_dir() {
                     scan_dir(&path, source_root, files)?;
@@ -250,7 +251,7 @@ pub fn ingest_directory(
             io::copy(&mut src_file, &mut temp_file)?;
 
             temp_file.persist(&target_path)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                .context("Failed to persist temporary file to target path.")?;
         }
     }
 
