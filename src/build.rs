@@ -219,8 +219,8 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
     let clear_output_env = std::env::var("PROJR_CLEAR_OUTPUT").ok();
     let clear_output_val = clear_output_env.as_deref().or(config.clear_output.as_deref());
 
-    crate::clear::clear_old(project_root.as_std_path(), &current_version, is_dev, config.old_dev_remove).map_err(|e| e.to_string())?;
-    crate::clear::clear_pre(project_root.as_std_path(), &current_version, &config, clear_output_val).map_err(|e| e.to_string())?;
+    crate::clear::clear_old(project_root, &current_version, is_dev, config.old_dev_remove).map_err(|e| e.to_string())?;
+    crate::clear::clear_pre(project_root, &current_version, &config, clear_output_val).map_err(|e| e.to_string())?;
 
     // 5. Version Bump
     if is_dev {
@@ -345,7 +345,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
             let is_single_doc_engine = !quarto_exists && !bookdown_exists;
             let clear_output_env = std::env::var("PROJR_CLEAR_OUTPUT").ok();
             let clear_output_val = clear_output_env.as_deref().or(config.clear_output.as_deref());
-            crate::clear::clear_post(project_root.as_std_path(), is_dev, &config, clear_output_val, is_single_doc_engine).map_err(|e| e.to_string())?;
+            crate::clear::clear_post(project_root, is_dev, &config, clear_output_val, is_single_doc_engine).map_err(|e| e.to_string())?;
 
             // Copy docs
             let should_run_output = config.output_run.unwrap_or(true);
