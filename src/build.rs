@@ -43,41 +43,41 @@ use crate::git::{is_git_installed, check_git_profile, git_commit_all, create_git
 use crate::yml::{yml_read_from, GlobalConfig};
 use crate::build_pre::run_pre_flight_checks;
 
-pub fn post_build_sync(config: &GlobalConfig, repo_dir: camino::Utf8PathBuf) -> Result<(), String> {
-    let provider = create_git_provider(config.git.engine, repo_dir).map_err(|e| e.to_string())?;
+pub fn post_build_sync(config: &GlobalConfig, repo_dir: camino::Utf8PathBuf) -> anyhow::Result<()> {
+    let provider = create_git_provider(config.git.engine, repo_dir)?;
 
     println!("Staging build artifacts and committing mutations...");
-    provider.commit_all("chore: automated workspace build update [compiled asset tracking]").map_err(|e| e.to_string())?;
+    provider.commit_all("chore: automated workspace build update [compiled asset tracking]")?;
 
     println!("Pushing local branch mutations to remote host...");
-    provider.push("origin", "main").map_err(|e| e.to_string())?;
+    provider.push("origin", "main")?;
 
     Ok(())
 }
 
-pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profile: Option<&str>, description: Option<&str>) -> Result<(), String> {
+pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profile: Option<&str>, description: Option<&str>) -> anyhow::Result<()> {
     let is_dev = mode == BuildMode::Dev;
     let is_prod_run = matches!(mode, BuildMode::ProdMajor | BuildMode::ProdMinor | BuildMode::ProdPatch);
 
     // ==========================================
     // STEP A: Activate Environment Guard
     // ==========================================
-    let _env_guard = crate::env::EnvGuard::activate(cli_profile, project_root).map_err(|e| format!("{:#}", e))?;
+    let _env_guard = crate::env::EnvGuard::activate(cli_profile, project_root).context("Failed to activate environment guard")?;
 
     // ==========================================
     // STEP B: Pre-Build Validation & Execution
     // ==========================================
 
     // 1. Config Audit
-    let mut config = yml_read_from(project_root, is_dev).map_err(|e| e.to_string())?; /* TODO: migrate to camino */
+    let mut config = yml_read_from(project_root, is_dev).context("Failed to read _proj.yml config")?; /* TODO: migrate to camino */
 
     // 2. Git Capability Audit
     if config.git.commit {
         if !is_git_installed() {
-            return Err("Git is required for commit but not found on system PATH.".to_string());
+            anyhow::bail!("Git is required for commit but not found on system PATH");
         }
         // TODO: migrate to camino
-        check_git_profile(Some(project_root)).map_err(|e| e.to_string())?;
+        check_git_profile(Some(project_root)).context("Failed to check Git profile capability")?;
     }
 
     // 3. Resolve configs and hooks
@@ -90,7 +90,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
     let mut hooks_config: crate::yml::HooksConfig = crate::yml::HooksConfig::default();
 
     if yml_path.exists() {
-        let content = fs::read_to_string(&yml_path).map_err(|e| e.to_string())?;
+        let content = fs::read_to_string(&yml_path).context("Failed to read _proj.yml")?;
         if let Ok(proj_conf) = serde_yaml::from_str::<ProjConfig>(&content) {
             let build = proj_conf.build;
             let dev = proj_conf.dev;
@@ -98,7 +98,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
             if is_dev {
                 if let Some(dev_scripts) = dev.scripts {
                     if dev_scripts.is_empty() {
-                        return Err("dev.scripts cannot be empty when running in dev mode. The purpose of dev mode is to run scripts.".to_string());
+                        anyhow::bail!("dev.scripts cannot be empty when running in dev mode. The purpose of dev mode is to run scripts");
                     }
                     build_scripts = Some(dev_scripts);
                 } else {
@@ -130,15 +130,15 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
     // Pre-flight Environment Verification
     let mut resolved_files = Vec::new();
     if let Some(scripts) = &build_scripts {
-        resolved_files = resolve_explicit_scripts(project_root.as_std_path(), scripts)?;
+        resolved_files = resolve_explicit_scripts(project_root, scripts)?;
     } else {
         if !quarto_exists && !bookdown_exists {
-            resolved_files = resolve_fallback_scripts(project_root.as_std_path())?;
+            resolved_files = resolve_fallback_scripts(project_root)?;
         }
     }
 
     // Upfront check for hooks
-    let resolved_hooks = resolve_explicit_scripts(project_root.as_std_path(), &raw_hooks)?;
+    let resolved_hooks = resolve_explicit_scripts(project_root, &raw_hooks)?;
 
     for expected_hook in raw_hooks.iter() {
         if expected_hook.starts_with('!') { continue; } // Exclusions not validated directly here
@@ -146,7 +146,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
         // Simple validation: Ensure explicitly asked scripts/hooks map to at least one file.
         // It's covered by `resolve_explicit_scripts` failing on glob error, but we want to fail fast if explicitly missing.
         for h in &resolved_hooks {
-            if h.to_string_lossy().contains(&expected_hook.replace('/', std::path::MAIN_SEPARATOR_STR)) {
+            if h.as_str().contains(&expected_hook.replace('/', std::path::MAIN_SEPARATOR_STR)) {
                 found = true;
                 break;
             }
@@ -158,12 +158,12 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
     }
 
     // Fail fast if explicit targets are missing entirely (hooks or scripts without globs)
-    let check_explicit_missing = |items: &[String]| -> Result<(), String> {
+    let check_explicit_missing = |items: &[String]| -> anyhow::Result<()> {
         for item in items {
             if item.starts_with('!') || item.contains('*') || item.contains('?') { continue; }
             let p = project_root.join(item);
             if !p.exists() {
-                return Err(format!("Error: Explicitly defined script or hook file '{}' does not exist.", item));
+                anyhow::bail!("Explicitly defined script or hook file '{}' does not exist", item);
             }
         }
         Ok(())
@@ -192,7 +192,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
         None => {
             let desc_path = project_root.join("DESCRIPTION");
             if desc_path.exists() {
-                let content = fs::read_to_string(&desc_path).map_err(|e| e.to_string())?;
+                let content = fs::read_to_string(&desc_path).context("Failed to read DESCRIPTION file")?;
                 let mut found_ver = None;
                 for line in content.lines() {
                     if line.starts_with("Version:") {
@@ -203,10 +203,10 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
                         }
                     }
                 }
-                found_ver.ok_or_else(|| "Could not extract a valid Version from DESCRIPTION file.".to_string())?
+                found_ver.context("Could not extract a valid Version from DESCRIPTION file")?
             } else {
                 let v = crate::version::ProjVersion { major: 0, minor: 0, patch: 1, dev: 0 };
-                version_set_at(project_root, &v.to_string(true)).map_err(|e| format!("{:#}", e))?;
+                version_set_at(project_root, &v.to_string(true)).context("Failed to initialize a VERSION file")?;
                 v
             }
         }
@@ -219,14 +219,14 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
     let clear_output_env = std::env::var("PROJR_CLEAR_OUTPUT").ok();
     let clear_output_val = clear_output_env.as_deref().or(config.clear_output.as_deref());
 
-    crate::clear::clear_old(project_root, &current_version, is_dev, config.old_dev_remove).map_err(|e| e.to_string())?;
-    crate::clear::clear_pre(project_root, &current_version, &config, clear_output_val).map_err(|e| e.to_string())?;
+    crate::clear::clear_old(project_root, &current_version, is_dev, config.old_dev_remove)?;
+    crate::clear::clear_pre(project_root, &current_version, &config, clear_output_val)?;
 
     // 5. Version Bump
     if is_dev {
         if initial_version.dev == 0 {
             initial_version.dev = 1;
-            version_set_at(project_root, &initial_version.to_string(false)).map_err(|e| format!("{:#}", e))?;
+            version_set_at(project_root, &initial_version.to_string(false))?;
         }
     } else {
         match mode {
@@ -247,7 +247,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
             }
             _ => {}
         }
-        version_set_at(project_root, &initial_version.to_string(false)).map_err(|e| format!("{:#}", e))?;
+        version_set_at(project_root, &initial_version.to_string(false))?;
     }
 
     // 6. Git auto-ignore (already handled in yml_read_from via update_ignores)
@@ -289,13 +289,13 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
 
     // Execute Pre-Build Hooks
     if let Some(pre_hooks) = &hooks_config.pre {
-        let pre_resolved = resolve_explicit_scripts(project_root.as_std_path(), pre_hooks)?;
+        let pre_resolved = resolve_explicit_scripts(project_root, pre_hooks)?;
         for hook in pre_resolved {
             execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
         }
     }
     if let Some(both_hooks) = &hooks_config.both {
-        let both_resolved = resolve_explicit_scripts(project_root.as_std_path(), both_hooks)?;
+        let both_resolved = resolve_explicit_scripts(project_root, both_hooks)?;
         for hook in both_resolved {
             execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
         }
@@ -303,8 +303,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
 
     // 6. Git Pre-Snapshot
     if config.git.commit {
-        // TODO: migrate to camino
-        git_commit_all("Snapshot pre-build", Some(project_root)).map_err(|e| e.to_string())?;
+        git_commit_all("Snapshot pre-build", Some(project_root)).context("Failed to snapshot pre-build")?;
     }
 
     // ==========================================
@@ -345,7 +344,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
             let is_single_doc_engine = !quarto_exists && !bookdown_exists;
             let clear_output_env = std::env::var("PROJR_CLEAR_OUTPUT").ok();
             let clear_output_val = clear_output_env.as_deref().or(config.clear_output.as_deref());
-            crate::clear::clear_post(project_root, is_dev, &config, clear_output_val, is_single_doc_engine).map_err(|e| e.to_string())?;
+            crate::clear::clear_post(project_root, is_dev, &config, clear_output_val, is_single_doc_engine)?;
 
             // Copy docs
             let should_run_output = config.output_run.unwrap_or(true);
@@ -353,31 +352,36 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
                 let final_docs_dir = original_docs_path.clone().unwrap_or_else(|| project_root.join("docs").into());
                 let cache_docs_dir = project_root.join("_tmp").join("projr").join(&current_version).join("docs");
 
+                // TODO: migrate to camino
                 if quarto_exists {
-                    let _ = copy_global_quarto_project(cache_docs_dir.as_std_path(), final_docs_dir.as_path());
+                    let _ = copy_global_quarto_project(&camino::Utf8PathBuf::try_from(cache_docs_dir).unwrap(), &camino::Utf8PathBuf::try_from(final_docs_dir).unwrap());
                 } else if bookdown_exists {
-                    let _ = copy_global_bookdown(cache_docs_dir.as_std_path(), final_docs_dir.as_path(), project_root.as_std_path());
+                    let _ = copy_global_bookdown(&camino::Utf8PathBuf::try_from(cache_docs_dir).unwrap(), &camino::Utf8PathBuf::try_from(final_docs_dir).unwrap(), project_root);
                 } else {
                     // It's a mixed/individual file run
                     if let Some(scripts) = &build_scripts {
-                        if let Ok(resolved_files) = resolve_explicit_scripts(project_root.as_std_path(), scripts) {
+                        if let Ok(resolved_files) = resolve_explicit_scripts(project_root, scripts) {
                             for file in resolved_files {
-                                let ext = file.extension().and_then(|s| s.to_str()).unwrap_or("");
+                                let ext = file.extension().unwrap_or("");
                                 if ext == "qmd" {
-                                    let _ = copy_individual_quarto(&file, final_docs_dir.as_path(), project_root.as_std_path());
+                                    // TODO: migrate to camino
+                                    let _ = copy_individual_quarto(&file, camino::Utf8Path::from_path(final_docs_dir.as_path()).unwrap(), project_root);
                                 } else if ext == "Rmd" || ext == "rmd" {
-                                    let _ = copy_individual_rmd(&file, final_docs_dir.as_path(), project_root.as_std_path());
+                                    // TODO: migrate to camino
+                                    let _ = copy_individual_rmd(&file, camino::Utf8Path::from_path(final_docs_dir.as_path()).unwrap(), project_root);
                                 }
                             }
                         }
                     } else {
-                        if let Ok(resolved_files) = resolve_fallback_scripts(project_root.as_std_path()) {
+                        if let Ok(resolved_files) = resolve_fallback_scripts(project_root) {
                             for file in resolved_files {
-                                let ext = file.extension().and_then(|s| s.to_str()).unwrap_or("");
+                                let ext = file.extension().unwrap_or("");
                                 if ext == "qmd" {
-                                    let _ = copy_individual_quarto(&file, final_docs_dir.as_path(), project_root.as_std_path());
+                                    // TODO: migrate to camino
+                                    let _ = copy_individual_quarto(&file, camino::Utf8Path::from_path(final_docs_dir.as_path()).unwrap(), project_root);
                                 } else if ext == "Rmd" || ext == "rmd" {
-                                    let _ = copy_individual_rmd(&file, final_docs_dir.as_path(), project_root.as_std_path());
+                                    // TODO: migrate to camino
+                                    let _ = copy_individual_rmd(&file, camino::Utf8Path::from_path(final_docs_dir.as_path()).unwrap(), project_root);
                                 }
                             }
                         }
@@ -392,21 +396,19 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
                     _ => format!("Build v{}", ver_str),
                 };
 
-                // Use the new Git Provider to commit
-                let provider = // TODO: migrate to camino
-                create_git_provider(config.config.git.engine, project_root.to_path_buf()).map_err(|e| e.to_string())?;
-                provider.commit_all(&final_message).map_err(|e| e.to_string())?;
+                let provider = create_git_provider(config.config.git.engine, project_root.to_path_buf())?;
+                provider.commit_all(&final_message)?;
             }
 
             // Execute Post-Build Hooks (after post-build commit, before push)
             if let Some(post_hooks) = &hooks_config.post {
-                let post_resolved = resolve_explicit_scripts(project_root.as_std_path(), post_hooks)?;
+                let post_resolved = resolve_explicit_scripts(project_root, post_hooks)?;
                 for hook in post_resolved {
                     execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
                 }
             }
             if let Some(both_hooks) = &hooks_config.both {
-                let both_resolved = resolve_explicit_scripts(project_root.as_std_path(), both_hooks)?;
+                let both_resolved = resolve_explicit_scripts(project_root, both_hooks)?;
                 for hook in both_resolved {
                     execute_script(&hook, profile.as_deref(), resolved_python_cmd.as_deref())?;
                 }
@@ -421,12 +423,12 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
                                 if let Ok(dir_path) = config.get_path(project_root, tag) /* TODO: migrate to camino */ {
                                     if dir_path.exists() {
                                         crate::cas::ingest_directory(
-                                            camino::Utf8Path::from_path(project_root.as_std_path()).ok_or_else(|| format!("Invalid utf8 path"))?,
+                                            project_root,
                                             remote.path.as_path(),
                                             tag,
                                             dir_path.as_path(),
                                             &initial_version.to_string(false)
-                                        ).map_err(|e| format!("Failed remote CAS export for {}: {}", tag, e))?;
+                                        ).context(format!("Failed remote CAS export for {}", tag))?;
                                     }
                                 }
                             }
@@ -496,7 +498,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
                 }
             let _ = version_set_at(project_root, &reverted.to_string(false));
             }
-            Err("Build pipeline panicked unexpectedly.".to_string())
+            anyhow::bail!("Build pipeline panicked unexpectedly.");
         }
     }
 }
@@ -508,19 +510,19 @@ fn execute_build_pipeline(
     quarto_exists: bool,
     bookdown_exists: bool,
     resolved_python_cmd: Option<&str>,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     if let Some(scripts) = build_scripts {
         // Path A: Explicit Configuration via build.scripts
-        let resolved_files = resolve_explicit_scripts(project_root.as_std_path(), &scripts)?;
+        let resolved_files = resolve_explicit_scripts(project_root, &scripts)?;
 
         // Mutual Exclusion Error (Rule 1 & 2)
         if quarto_exists && bookdown_exists {
             let has_docs = resolved_files.iter().any(|f| {
-                let ext = f.extension().and_then(|e| e.to_str()).unwrap_or("");
+                let ext = f.extension().unwrap_or("");
                 ext == "qmd" || ext == "Rmd"
             });
             if has_docs {
-                return Err("Mutual Exclusion Error: Both _quarto.yml and _bookdown.yml exist in the workspace, and the build.scripts key in _proj.yml is omitted or includes .qmd or .Rmd files. Aborting build.".to_string());
+                anyhow::bail!("Mutual Exclusion Error: Both _quarto.yml and _bookdown.yml exist in the workspace, and the build.scripts key in _proj.yml is omitted or includes .qmd or .Rmd files. Aborting build.");
             }
         }
 
@@ -531,7 +533,7 @@ fn execute_build_pipeline(
 
         let mut doc_files = Vec::new();
         for file in &resolved_files {
-            let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let ext = file.extension().unwrap_or("");
             if ext == "qmd" || ext == "Rmd" {
                 doc_files.push(file.clone());
             }
@@ -550,7 +552,7 @@ fn execute_build_pipeline(
             let mut seen_doc = false;
 
             for file in resolved_files {
-                let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("");
+                let ext = file.extension().unwrap_or("");
                 if ext == "qmd" || ext == "Rmd" {
                     seen_doc = true;
                 } else if ext == "R" || ext == "py" {
@@ -571,10 +573,10 @@ fn execute_build_pipeline(
             // Execute doc clusters
             if quarto_exists && !doc_files.is_empty() {
                 let p = profile.clone();
-                execute_project_render(project_root.as_std_path(), true, p.as_deref())?;
+                execute_project_render(project_root, true, p.as_deref())?;
             } else if bookdown_exists && !doc_files.is_empty() {
                 let p = profile.clone();
-                execute_project_render(project_root.as_std_path(), false, p.as_deref())?;
+                execute_project_render(project_root, false, p.as_deref())?;
             }
 
             // Execute post-scripts
@@ -593,16 +595,16 @@ fn execute_build_pipeline(
     } else {
         // Mutual Exclusion Error (Rule 1 & 2)
         if quarto_exists && bookdown_exists {
-            return Err("Mutual Exclusion Error: Both _quarto.yml and _bookdown.yml exist in the workspace, and the build.scripts key in _proj.yml is omitted or includes .qmd or .Rmd files. Aborting build.".to_string());
+            anyhow::bail!("Mutual Exclusion Error: Both _quarto.yml and _bookdown.yml exist in the workspace, and the build.scripts key in _proj.yml is omitted or includes .qmd or .Rmd files. Aborting build.");
         }
 
         // Path B: Fallback Automated Auto-Discovery
         if quarto_exists {
-            execute_project_render(project_root.as_std_path(), true, profile.as_deref())?;
+            execute_project_render(project_root, true, profile.as_deref())?;
         } else if bookdown_exists {
-            execute_project_render(project_root.as_std_path(), false, profile.as_deref())?;
+            execute_project_render(project_root, false, profile.as_deref())?;
         } else {
-            let resolved_files = resolve_fallback_scripts(project_root.as_std_path())?;
+            let resolved_files = resolve_fallback_scripts(project_root)?;
             for file in resolved_files {
                 execute_script(&file, profile.as_deref(), resolved_python_cmd)?;
             }
@@ -616,7 +618,7 @@ fn execute_build_pipeline(
 ///
 /// Supports exclusion globs starting with `!`, strictly matches root documents when no sub-directory
 /// prefix is provided, and captures valid formats under sub-directories.
-pub(crate) fn resolve_explicit_scripts(project_root: &Path, scripts: &[String]) -> Result<Vec<PathBuf>, String> {
+pub(crate) fn resolve_explicit_scripts(project_root: &camino::Utf8Path, scripts: &[String]) -> anyhow::Result<Vec<camino::Utf8PathBuf>> {
     if scripts.is_empty() {
         return Ok(Vec::new()); // The Explicit Empty Exception ("Don't Run Anything")
     }
@@ -638,18 +640,19 @@ pub(crate) fn resolve_explicit_scripts(project_root: &Path, scripts: &[String]) 
         // If there's no directory prefix (e.g. *.qmd), it should only match at the root.
         let is_root_only = !pattern.contains('/');
         let target_pattern = if is_root_only {
-            project_root.join(pattern).to_string_lossy().to_string()
+            project_root.join(pattern).to_string()
         } else {
-            project_root.join(pattern).to_string_lossy().to_string()
+            project_root.join(pattern).to_string()
         };
 
+        // TODO: migrate to camino
         let paths = glob::glob(&target_pattern)
-            .map_err(|e| format!("Invalid glob pattern '{}': {}", target_pattern, e))?;
+            .context(format!("Invalid glob pattern '{}'", target_pattern))?;
 
         for entry in paths {
             if let Ok(path) = entry {
                 if path.is_file() {
-                    matched_files.push(path);
+                    matched_files.push(camino::Utf8PathBuf::try_from(path).context("Non-UTF-8 path encountered")?);
                 }
             }
         }
@@ -664,13 +667,14 @@ pub(crate) fn resolve_explicit_scripts(project_root: &Path, scripts: &[String]) 
             // Very simple matcher for excludes
             let is_root_only = !exclude.contains('/');
             let exclude_pattern = if is_root_only {
-                project_root.join(exclude).to_string_lossy().to_string()
+                project_root.join(exclude).to_string()
             } else {
-                project_root.join(exclude).to_string_lossy().to_string()
+                project_root.join(exclude).to_string()
             };
 
+            // TODO: migrate to camino
             if let Ok(ex_pattern) = glob::Pattern::new(&exclude_pattern) {
-                if ex_pattern.matches_path(&file) {
+                if ex_pattern.matches_path(file.as_std_path()) {
                     is_excluded = true;
                     break;
                 }
@@ -690,15 +694,15 @@ pub(crate) fn resolve_explicit_scripts(project_root: &Path, scripts: &[String]) 
 }
 
 /// Dynamically modifies the `project.render` array in `_quarto.yml`.
-fn rewrite_quarto_yml(project_root: &Path, qmd_files: &[PathBuf]) -> Result<(), String> {
+fn rewrite_quarto_yml(project_root: &Path, qmd_files: &[camino::Utf8PathBuf]) -> anyhow::Result<()> {
     let qmd_paths: Vec<String> = qmd_files.iter()
-        .map(|p| p.strip_prefix(project_root).unwrap_or(p).to_string_lossy().to_string())
+        .map(|p| p.strip_prefix(project_root.to_string_lossy().to_string()).unwrap_or(p).to_string())
         .collect();
 
     let quarto_path = project_root.join("_quarto.yml");
-    let content = fs::read_to_string(&quarto_path).map_err(|e| e.to_string())?;
+    let content = fs::read_to_string(&quarto_path).context("Failed to read _quarto.yml")?;
 
-    let mut yaml: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+    let mut yaml: serde_yaml::Value = serde_yaml::from_str(&content).context("Failed to parse _quarto.yml")?;
 
     if let serde_yaml::Value::Mapping(ref mut map) = yaml {
         let proj_key = serde_yaml::Value::String("project".to_string());
@@ -714,19 +718,19 @@ fn rewrite_quarto_yml(project_root: &Path, qmd_files: &[PathBuf]) -> Result<(), 
         }
     }
 
-    let out_content = serde_yaml::to_string(&yaml).map_err(|e| e.to_string())?;
-    fs::write(&quarto_path, out_content).map_err(|e| e.to_string())?;
+    let out_content = serde_yaml::to_string(&yaml).context("Failed to serialize _quarto.yml")?;
+    fs::write(&quarto_path, out_content).context("Failed to write _quarto.yml")?;
     Ok(())
 }
 
 /// Dynamically rewrites the output directory for external engines (`_quarto.yml` or `_bookdown.yml`).
-pub(crate) fn rewrite_engine_output_dir(project_root: &Path, engine: &str, out_dir: &str) -> Result<(), String> {
+pub(crate) fn rewrite_engine_output_dir(project_root: &Path, engine: &str, out_dir: &str) -> anyhow::Result<()> {
     if engine == "quarto" {
         let quarto_path = project_root.join("_quarto.yml");
         if !quarto_path.exists() {
             return Ok(());
         }
-        let content = fs::read_to_string(&quarto_path).map_err(|e| e.to_string())?;
+        let content = fs::read_to_string(&quarto_path).context("Failed to read _quarto.yml")?;
 
         let mut yaml: serde_yaml::Value = serde_yaml::from_str(&content).unwrap_or(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
 
@@ -746,15 +750,15 @@ pub(crate) fn rewrite_engine_output_dir(project_root: &Path, engine: &str, out_d
             }
         }
 
-        let out_content = serde_yaml::to_string(&yaml).map_err(|e| e.to_string())?;
-        fs::write(&quarto_path, out_content).map_err(|e| e.to_string())?;
+        let out_content = serde_yaml::to_string(&yaml).context("Failed to serialize _quarto.yml")?;
+        fs::write(&quarto_path, out_content).context("Failed to write _quarto.yml")?;
 
     } else if engine == "bookdown" {
         let bookdown_path = project_root.join("_bookdown.yml");
         if !bookdown_path.exists() {
             return Ok(());
         }
-        let content = fs::read_to_string(&bookdown_path).map_err(|e| e.to_string())?;
+        let content = fs::read_to_string(&bookdown_path).context("Failed to read _bookdown.yml")?;
 
         let mut yaml: serde_yaml::Value = serde_yaml::from_str(&content).unwrap_or(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
 
@@ -767,23 +771,23 @@ pub(crate) fn rewrite_engine_output_dir(project_root: &Path, engine: &str, out_d
             map.insert(out_dir_key, serde_yaml::Value::String(out_dir.to_string()));
         }
 
-        let out_content = serde_yaml::to_string(&yaml).map_err(|e| e.to_string())?;
-        fs::write(&bookdown_path, out_content).map_err(|e| e.to_string())?;
+        let out_content = serde_yaml::to_string(&yaml).context("Failed to serialize _bookdown.yml")?;
+        fs::write(&bookdown_path, out_content).context("Failed to write _bookdown.yml")?;
     }
 
     Ok(())
 }
 
 /// Dynamically modifies the `rmd_files` array in `_bookdown.yml`.
-fn rewrite_bookdown_yml(project_root: &Path, rmd_files: &[PathBuf]) -> Result<(), String> {
+fn rewrite_bookdown_yml(project_root: &Path, rmd_files: &[camino::Utf8PathBuf]) -> anyhow::Result<()> {
     let rmd_paths: Vec<String> = rmd_files.iter()
-        .map(|p| p.strip_prefix(project_root).unwrap_or(p).to_string_lossy().to_string())
+        .map(|p| p.strip_prefix(project_root.to_string_lossy().to_string()).unwrap_or(p).to_string())
         .collect();
 
     let bookdown_path = project_root.join("_bookdown.yml");
-    let content = fs::read_to_string(&bookdown_path).map_err(|e| e.to_string())?;
+    let content = fs::read_to_string(&bookdown_path).context("Failed to read _bookdown.yml")?;
 
-    let mut yaml: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+    let mut yaml: serde_yaml::Value = serde_yaml::from_str(&content).context("Failed to parse _bookdown.yml")?;
 
     if let serde_yaml::Value::Mapping(ref mut map) = yaml {
         let key = serde_yaml::Value::String("rmd_files".to_string());
@@ -791,19 +795,20 @@ fn rewrite_bookdown_yml(project_root: &Path, rmd_files: &[PathBuf]) -> Result<()
         map.insert(key, serde_yaml::Value::Sequence(seq));
     }
 
-    let out_content = serde_yaml::to_string(&yaml).map_err(|e| e.to_string())?;
-    fs::write(&bookdown_path, out_content).map_err(|e| e.to_string())?;
+    let out_content = serde_yaml::to_string(&yaml).context("Failed to serialize _bookdown.yml")?;
+    fs::write(&bookdown_path, out_content).context("Failed to write _bookdown.yml")?;
     Ok(())
 }
 
 /// Evaluates Path B: Fallback Automated Auto-Discovery
 ///
 /// Sweeps for `.qmd`, `.Rmd`, `.R`, `.py` in that strict order.
-pub(crate) fn resolve_fallback_scripts(project_root: &Path) -> Result<Vec<PathBuf>, String> {
+pub(crate) fn resolve_fallback_scripts(project_root: &camino::Utf8Path) -> anyhow::Result<Vec<camino::Utf8PathBuf>> {
     let mut files = Vec::new();
 
     // Shallow directory sweep
-    if let Ok(entries) = fs::read_dir(project_root) {
+    // TODO: migrate to camino
+    if let Ok(entries) = fs::read_dir(project_root.as_std_path()) {
         let mut qmd = Vec::new();
         let mut rmd = Vec::new();
         let mut r = Vec::new();
@@ -812,8 +817,8 @@ pub(crate) fn resolve_fallback_scripts(project_root: &Path) -> Result<Vec<PathBu
         for entry in entries.flatten() {
             if let Ok(file_type) = entry.file_type() {
                 if file_type.is_file() {
-                    let path = entry.path();
-                    if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                    let path = camino::Utf8PathBuf::try_from(entry.path()).context("Non-UTF-8 path encountered")?;
+                    if let Some(ext) = path.extension() {
                         match ext {
                             "qmd" => qmd.push(path),
                             "Rmd" => rmd.push(path),
@@ -842,12 +847,14 @@ pub(crate) fn resolve_fallback_scripts(project_root: &Path) -> Result<Vec<PathBu
 }
 
 use std::process::Command;
-pub fn copy_individual_rmd(file_path: &Path, docs_path: &Path, project_root: &Path) -> Result<(), String> {
+use anyhow::Context;
+
+pub fn copy_individual_rmd(file_path: &camino::Utf8Path, docs_path: &camino::Utf8Path, project_root: &camino::Utf8Path) -> anyhow::Result<()> {
     let content = fs::read_to_string(file_path).unwrap_or_default();
     let (format, output_file) = crate::build_pre::parse_frontmatter_options(&content);
     let ext = crate::build_pre::map_format_to_extension(format.as_deref());
 
-    let file_stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let file_stem = file_path.file_stem().unwrap_or("");
     let parent_dir = file_path.parent().unwrap_or(project_root);
 
     // Default Rmd output is usually <stem>.html or <output_file> in the same dir as the .Rmd file
@@ -867,23 +874,23 @@ pub fn copy_individual_rmd(file_path: &Path, docs_path: &Path, project_root: &Pa
 
     if target_file.exists() {
         let dest_file = docs_path.join(&target_file_name);
-        fs::rename(&target_file, &dest_file).map_err(|e| format!("Failed to move target file {}: {}", target_file.display(), e))?;
+        fs::rename(&target_file, &dest_file).context(format!("Failed to move target file {}", target_file))?;
     }
 
     if files_dir.exists() {
         let dest_files_dir = docs_path.join(&files_dir_name);
-        crate::fs_utils::dir_move_exact(&camino::Utf8PathBuf::try_from(files_dir.clone()).unwrap(), &camino::Utf8PathBuf::try_from(dest_files_dir.clone()).unwrap()).map_err(|e| e.to_string())?;
+        crate::fs_utils::dir_move_exact(&files_dir, &dest_files_dir)?;
     }
 
     Ok(())
 }
 
-pub fn copy_individual_quarto(file_path: &Path, docs_path: &Path, project_root: &Path) -> Result<(), String> {
+pub fn copy_individual_quarto(file_path: &camino::Utf8Path, docs_path: &camino::Utf8Path, project_root: &camino::Utf8Path) -> anyhow::Result<()> {
     let content = fs::read_to_string(file_path).unwrap_or_default();
     let (format, output_file) = crate::build_pre::parse_frontmatter_options(&content);
     let ext = crate::build_pre::map_format_to_extension(format.as_deref());
 
-    let file_stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let file_stem = file_path.file_stem().unwrap_or("");
     let parent_dir = file_path.parent().unwrap_or(project_root);
 
     let target_file_name = if let Some(of) = output_file {
@@ -902,19 +909,19 @@ pub fn copy_individual_quarto(file_path: &Path, docs_path: &Path, project_root: 
 
     if target_file.exists() {
         let dest_file = docs_path.join(&target_file_name);
-        fs::rename(&target_file, &dest_file).map_err(|e| format!("Failed to move target file {}: {}", target_file.display(), e))?;
+        fs::rename(&target_file, &dest_file).context(format!("Failed to move target file {}", target_file))?;
     }
 
     if files_dir.exists() {
         let dest_files_dir = docs_path.join(&files_dir_name);
-        crate::fs_utils::dir_move_exact(&camino::Utf8PathBuf::try_from(files_dir.clone()).unwrap(), &camino::Utf8PathBuf::try_from(dest_files_dir.clone()).unwrap()).map_err(|e| e.to_string())?;
+        crate::fs_utils::dir_move_exact(&files_dir, &dest_files_dir)?;
     }
 
     Ok(())
 }
 
-pub fn copy_global_bookdown(cache_docs_dir: &Path, final_docs_dir: &Path, project_root: &Path) -> Result<(), String> {
-    crate::fs_utils::dir_move_exact(&camino::Utf8PathBuf::try_from(cache_docs_dir.to_path_buf()).unwrap(), &camino::Utf8PathBuf::try_from(final_docs_dir.to_path_buf()).unwrap()).map_err(|e| e.to_string())?;
+pub fn copy_global_bookdown(cache_docs_dir: &camino::Utf8Path, final_docs_dir: &camino::Utf8Path, project_root: &camino::Utf8Path) -> anyhow::Result<()> {
+    crate::fs_utils::dir_move_exact(cache_docs_dir, final_docs_dir)?;
 
     // We also need to locate <book_filename>_files and move to final target context.
     // _bookdown.yml specifies book_filename, defaulting to _main
@@ -935,62 +942,64 @@ pub fn copy_global_bookdown(cache_docs_dir: &Path, final_docs_dir: &Path, projec
     let files_dir = project_root.join(&files_dir_name);
     if files_dir.exists() {
         let dest_files_dir = final_docs_dir.join(&files_dir_name);
-        crate::fs_utils::dir_move_exact(&camino::Utf8PathBuf::try_from(files_dir.clone()).unwrap(), &camino::Utf8PathBuf::try_from(dest_files_dir.clone()).unwrap()).map_err(|e| e.to_string())?;
+        crate::fs_utils::dir_move_exact(&files_dir, &dest_files_dir)?;
     }
 
     Ok(())
 }
 
-pub fn copy_global_quarto_project(cache_docs_dir: &Path, final_docs_dir: &Path) -> Result<(), String> {
-    crate::fs_utils::dir_move_exact(&camino::Utf8PathBuf::try_from(cache_docs_dir.to_path_buf()).unwrap(), &camino::Utf8PathBuf::try_from(final_docs_dir.to_path_buf()).unwrap()).map_err(|e| e.to_string())
+pub fn copy_global_quarto_project(cache_docs_dir: &camino::Utf8Path, final_docs_dir: &camino::Utf8Path) -> anyhow::Result<()> {
+    crate::fs_utils::dir_move_exact(cache_docs_dir, final_docs_dir)?;
+    Ok(())
 }
 
 /// Executes a single script in an isolated subprocess.
-fn execute_script(script_path: &Path, profile: Option<&str>, resolved_python_cmd: Option<&str>) -> Result<(), String> {
-    let parent_dir = script_path.parent().unwrap_or(Path::new(""));
-    let ext = script_path.extension().and_then(|s| s.to_str()).unwrap_or("");
+fn execute_script(script_path: &camino::Utf8Path, profile: Option<&str>, resolved_python_cmd: Option<&str>) -> anyhow::Result<()> {
+    let parent_dir = script_path.parent().unwrap_or(camino::Utf8Path::new(""));
+    let ext = script_path.extension().unwrap_or("");
     let mut cmd = match ext {
         "R" => {
             let mut c = Command::new("Rscript");
-            c.arg(script_path);
+            c.arg(script_path.as_std_path());
             c
         },
         "py" => {
             let python_exe = resolved_python_cmd.unwrap_or("python");
             let mut c = Command::new(python_exe);
-            c.arg(script_path);
+            c.arg(script_path.as_std_path());
             c
         },
         "qmd" => {
             let mut c = Command::new("quarto");
-            c.arg("render").arg(script_path);
+            c.arg("render").arg(script_path.as_std_path());
             c
         },
         "Rmd" => {
             let mut c = Command::new("Rscript");
-            c.arg("-e").arg(format!("rmarkdown::render('{}')", script_path.file_name().unwrap().to_string_lossy()));
+            c.arg("-e").arg(format!("rmarkdown::render('{}')", script_path.file_name().unwrap()));
             c
         },
         _ => {
-            return Err(format!("Unsupported script extension for execution: {}", script_path.display()));
+            anyhow::bail!("Unsupported script extension for execution: {}", script_path);
         }
     };
 
-    cmd.current_dir(parent_dir);
+    // TODO: migrate to camino
+    cmd.current_dir(parent_dir.as_std_path());
     if let Some(p) = profile {
         cmd.env("PROJR_PROFILE", p);
     }
 
-    let status = cmd.status().map_err(|e| format!("Failed to execute script {}: {}", script_path.display(), e))?;
+    let status = cmd.status().context(format!("Failed to execute script {}", script_path))?;
     if !status.success() {
-        return Err(format!("Script {} failed with status: {}", script_path.display(), status));
+        anyhow::bail!("Script {} failed with status: {}", script_path, status);
     }
 
     Ok(())
 }
 
 /// Executes a quarto or bookdown project render.
-fn execute_project_render(project_root: &Path, is_quarto: bool, profile: Option<&str>) -> Result<(), String> {
+fn execute_project_render(project_root: &camino::Utf8Path, is_quarto: bool, profile: Option<&str>) -> anyhow::Result<()> {
     let mut cmd = if is_quarto {
         let mut c = Command::new("quarto");
         c.arg("render");
@@ -1001,14 +1010,15 @@ fn execute_project_render(project_root: &Path, is_quarto: bool, profile: Option<
         c
     };
 
-    cmd.current_dir(project_root);
+    // TODO: migrate to camino
+    cmd.current_dir(project_root.as_std_path());
     if let Some(p) = profile {
         cmd.env("PROJR_PROFILE", p);
     }
 
-    let status = cmd.status().map_err(|e| format!("Failed to execute project render: {}", e))?;
+    let status = cmd.status().context("Failed to execute project render")?;
     if !status.success() {
-        return Err(format!("Project render failed with status: {}", status));
+        anyhow::bail!("Project render failed with status: {}", status);
     }
 
     Ok(())
