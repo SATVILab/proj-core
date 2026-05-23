@@ -29,7 +29,7 @@ pub fn create_profile(name: &str, project_root: &Utf8Path) -> anyhow::Result<Utf
     let filename = format!("_projr-{}.yml", name);
     let path = project_root.join(filename);
     if path.exists() {
-        anyhow::bail!("Profile {} already exists", name);
+        anyhow::bail!("Profile {} already exists.", name);
     }
     fs::write(&path, "")?;
     Ok(path)
@@ -60,7 +60,7 @@ pub fn create_local_profile(project_root: &Utf8Path) -> anyhow::Result<Utf8PathB
     let local_path = project_root.join("_projr-local.yml");
 
     if local_path.exists() {
-        anyhow::bail!("Local profile _projr-local.yml already exists");
+        anyhow::bail!("Local profile _projr-local.yml already exists.");
     }
 
     if baseline_path.exists() {
@@ -89,6 +89,6 @@ pub fn delete_profile(name: &str, project_root: &Utf8Path) -> anyhow::Result<()>
         fs::remove_file(path)?;
         Ok(())
     } else {
-        anyhow::bail!("Profile {} does not exist", name);
+        anyhow::bail!("Profile {} does not exist.", name);
     }
 }

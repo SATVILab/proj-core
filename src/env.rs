@@ -148,7 +148,6 @@ impl EnvGuard {
                 if file == local_env_file {
                     // Automatically add _environment.local to ignores
                     let _ = crate::ignore::add_manual_ignores(
-                        // TODO: migrate to camino
                         base_dir,
                         &["_environment.local".to_string()],
                         true,
@@ -186,7 +185,7 @@ impl EnvGuard {
 
                     if !key.is_empty() && std::env::var(&key).is_err() {
                         anyhow::bail!(
-                            "Error: Required environment variable '{}' is missing from the environment.",
+                            "Required environment variable '{}' is missing from the environment.",
                             key
                         );
                     }
