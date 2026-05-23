@@ -1,12 +1,11 @@
-use std::path::PathBuf;
 use std::process::Command;
 use std::io::{self, BufRead, IsTerminal};
+use anyhow::Context;
 use crate::git::{get_github_token, execute_authenticated_git, create_git_provider};
 use crate::yml::GlobalConfig;
 
-pub fn pre_flight_git_check(config: &GlobalConfig, repo_dir: PathBuf) -> Result<(), String> {
-    let provider = // TODO: migrate to camino
-    create_git_provider(config.git.engine, camino::Utf8PathBuf::try_from(repo_dir).unwrap()).map_err(|e| e.to_string())?;
+pub fn pre_flight_git_check(config: &GlobalConfig, repo_dir: &camino::Utf8Path) -> anyhow::Result<()> {
+    let provider = create_git_provider(config.git.engine, repo_dir.to_path_buf())?;
 
     // Check if user has context configurations mapped out
     let name = provider.get_user_name().unwrap_or_else(|| "Unknown".to_string());
@@ -106,15 +105,15 @@ pub fn run_pre_flight_checks(
     project_root: &camino::Utf8Path,
     config: &ValidatedConfig,
     is_prod_run: bool,
-    resolved_files: &[PathBuf],
+    resolved_files: &[camino::Utf8PathBuf],
     quarto_exists: bool,
     bookdown_exists: bool,
-) -> Result<(Option<String>, Option<String>), String> {
+) -> anyhow::Result<(Option<String>, Option<String>)> {
     let mut resolved_token = None;
     let needs_remote = config.git.push || (is_prod_run && config.restrictions.not_behind == Some(true)) || (is_prod_run && config.restrictions.not_behind.is_none());
 
     if needs_remote && config.config.git.use_proj_cred_helper {
-        let token = get_github_token().map_err(|e| e.to_string())?;
+        let token = get_github_token().context("Failed to retrieve GitHub token")?;
         resolved_token = Some(token);
     }
 
@@ -123,7 +122,7 @@ pub fn run_pre_flight_checks(
 
         // Run the new pre_flight_git_check if it's a git repo and git is configured
         if is_git_repo {
-            pre_flight_git_check(&config.config, project_root.as_std_path().to_path_buf())?;
+            pre_flight_git_check(&config.config, project_root)?;
         }
 
         let mut current_branch = None;
@@ -141,21 +140,21 @@ pub fn run_pre_flight_checks(
         // Branch constraints
         if let Some(only_branches) = &config.restrictions.only_branches {
             if !is_git_repo {
-                return Err("Error: build.restrictions.only_branches is specified, but the project is not inside a Git repository.".to_string());
+                anyhow::bail!("Output builds are restricted to specific branches, but the project is not inside a Git repository");
             }
             if let Some(branch) = &current_branch {
                 if !only_branches.contains(branch) {
-                    return Err(format!("Error: Output builds are restricted to branches {:?} as per build.restrictions.only_branches. Current branch is '{}'.", only_branches, branch));
+                    anyhow::bail!("Output builds are restricted to branches {:?} as per build.restrictions.only_branches, but current branch is '{}'", only_branches, branch);
                 }
             } else {
-                return Err("Error: build.restrictions.only_branches is specified, but could not determine current branch.".to_string());
+                anyhow::bail!("Output builds are restricted to specific branches, but could not determine current branch");
             }
         }
 
         if let Some(not_branches) = &config.restrictions.not_branches {
             if let Some(branch) = &current_branch {
                 if not_branches.contains(branch) {
-                    return Err(format!("Error: Output builds are restricted on branch '{}' as per build.restrictions.not_branches.", branch));
+                    anyhow::bail!("Output builds are restricted on branch '{}' as per build.restrictions.not_branches", branch);
                 }
             }
         }
@@ -164,17 +163,17 @@ pub fn run_pre_flight_checks(
         let not_behind = config.restrictions.not_behind;
         if not_behind != Some(false) {
             if not_behind == Some(true) && (!is_git_repo || !has_tracking_remote(project_root)) {
-                return Err("Error: build.restrictions.not_behind is explicitly set to true, but no Git remote is configured.".to_string());
+                anyhow::bail!("build.restrictions.not_behind is explicitly set to true, but no Git remote is configured");
             }
 
             if is_git_repo {
                 if !has_tracking_remote(project_root) {
                     if not_behind.is_none() {
-                        return Err("Error: Git repository detected but no upstream tracking remote is configured. Configure a remote or set build.restrictions.not_behind to false.".to_string());
+                        anyhow::bail!("Git repository detected but no upstream tracking remote is configured. Configure a remote or set build.restrictions.not_behind to false");
                     }
                 } else {
                     if is_behind_remote(project_root, resolved_token.as_deref())? {
-                        return Err("Error: The local branch is behind its tracking remote. Please pull or merge changes before building.".to_string());
+                        anyhow::bail!("The local branch is behind its tracking remote. Please pull or merge changes before building");
                     }
                 }
             }
@@ -190,7 +189,7 @@ pub fn run_pre_flight_checks(
     }
 
     for file in resolved_files {
-        let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let ext = file.extension().unwrap_or("");
         match ext {
             "Rmd" | "rmd" => {
                 r_needed = true;
@@ -212,7 +211,7 @@ pub fn run_pre_flight_checks(
     // A. R Validation
     if r_needed {
         if Command::new("Rscript").arg("--version").output().is_err() {
-            return Err("Error: 'Rscript' executable not found on the system PATH. A working R installation is required to build this project.".to_string());
+            anyhow::bail!("'Rscript' executable not found on the system PATH. A working R installation is required to build this project");
         }
 
         let mut required_packages = Vec::new();
@@ -271,18 +270,18 @@ pub fn run_pre_flight_checks(
                             &format!("install.packages('{}', repos='https://cloud.r-project.org')", package_name),
                         ])
                         .status()
-                        .map_err(|e| format!("Failed to execute Rscript for installation: {}", e))?;
+                        .context(format!("Failed to execute Rscript to install package '{}'", package_name))?;
 
                     if !install_status.success() {
-                        return Err(format!("Error: Failed to install R package '{}'.", package_name));
+                        anyhow::bail!("Failed to install R package '{}'", package_name);
                     }
                 } else {
-                    return Err(format!(
-                        "Error: Required R package '{}' is not installed.\n\
+                    anyhow::bail!(
+                        "Required R package '{}' is not installed.\n\
                         To install this dependency programmatically, run:\n    \
                         Rscript -e \"install.packages('{}', repos='https://cloud.r-project.org')\"",
                         package_name, package_name
-                    ));
+                    );
                 }
             }
         }
@@ -291,8 +290,8 @@ pub fn run_pre_flight_checks(
     // B. Quarto Validation
     if quarto_needed {
         if Command::new("quarto").arg("--version").output().is_err() {
-            return Err("Error: 'quarto' binary not found on the system PATH. \n\
-                        Please download and install Quarto before proceeding: https://quarto.org/docs/get-started/".to_string());
+            anyhow::bail!("'quarto' binary not found on the system PATH. \n\
+                        Please download and install Quarto before proceeding: https://quarto.org/docs/get-started/");
         }
     }
 
@@ -304,8 +303,8 @@ pub fn run_pre_flight_checks(
                 resolved_python_cmd = Some(cmd);
             }
             None => {
-                return Err("Error: Python interpreter not found on the system PATH. \
-                            Please ensure either 'python3' or 'python' is installed and accessible.".to_string());
+                anyhow::bail!("Python interpreter not found on the system PATH. \
+                            Please ensure either 'python3' or 'python' is installed and accessible");
             }
         }
     }
@@ -324,18 +323,17 @@ fn has_tracking_remote(project_root: &camino::Utf8Path) -> bool {
     }
 }
 
-fn is_behind_remote(project_root: &camino::Utf8Path, token: Option<&str>) -> Result<bool, String> {
+fn is_behind_remote(project_root: &camino::Utf8Path, token: Option<&str>) -> anyhow::Result<bool> {
     // Perform fetch
     if let Some(t) = token {
-        // TODO: migrate to camino
-        execute_authenticated_git(&["fetch"], t, Some(project_root)).map_err(|e| e.to_string())?;
+        execute_authenticated_git(&["fetch"], t, Some(project_root)).context("Failed to perform authenticated git fetch")?;
     } else {
         let mut fetch_cmd = Command::new("git");
         fetch_cmd.args(["fetch"]);
         fetch_cmd.current_dir(project_root);
-        let fetch_out = fetch_cmd.output().map_err(|e| format!("Failed to fetch from remote: {}", e))?;
+        let fetch_out = fetch_cmd.output().context("Failed to execute git fetch command")?;
         if !fetch_out.status.success() {
-            return Err(format!("Failed to fetch from remote: {}", String::from_utf8_lossy(&fetch_out.stderr)));
+            anyhow::bail!("Failed to fetch from remote: {}", String::from_utf8_lossy(&fetch_out.stderr));
         }
     }
 
@@ -343,7 +341,7 @@ fn is_behind_remote(project_root: &camino::Utf8Path, token: Option<&str>) -> Res
     let mut cmd = Command::new("git");
     cmd.args(["rev-list", "--count", "HEAD..@{u}"]);
     cmd.current_dir(project_root);
-    let output = cmd.output().map_err(|e| format!("Failed to check if behind remote: {}", e))?;
+    let output = cmd.output().context("Failed to execute git rev-list command")?;
 
     if output.status.success() {
         let count_str = String::from_utf8_lossy(&output.stdout);
@@ -353,7 +351,7 @@ fn is_behind_remote(project_root: &camino::Utf8Path, token: Option<&str>) -> Res
     }
 
     // If the above fails (e.g., no upstream configured, though we check it prior), assume not behind or return error
-    Err("Failed to determine if the local branch is behind the remote.".to_string())
+    anyhow::bail!("Failed to determine if the local branch is behind the remote");
 }
 
 #[cfg(test)]

@@ -57,8 +57,8 @@ fn test_mixed_engine_project() {
     fs::write(qmd_files_dir.join("script.js"), "mock js").unwrap();
 
     // Now run copy routines
-    copy_individual_rmd(&rmd_path, &docs_path, project_root).unwrap();
-    copy_individual_quarto(&qmd_path, &docs_path, project_root).unwrap();
+    copy_individual_rmd(&camino::Utf8PathBuf::try_from(rmd_path).unwrap(), &camino::Utf8PathBuf::try_from(docs_path.clone()).unwrap(), camino::Utf8Path::from_path(project_root).unwrap()).unwrap();
+    copy_individual_quarto(&camino::Utf8PathBuf::try_from(qmd_path).unwrap(), &camino::Utf8PathBuf::try_from(docs_path.clone()).unwrap(), camino::Utf8Path::from_path(project_root).unwrap()).unwrap();
 
     // Assertions
     assert!(docs_path.join("test_rmd.docx").exists());
