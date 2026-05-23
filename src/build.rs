@@ -69,7 +69,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
     // ==========================================
 
     // 1. Config Audit
-    let mut config = yml_read_from(project_root.as_std_path(), is_dev)?;
+    let mut config = yml_read_from(project_root, is_dev).map_err(|e| e.to_string())?; /* TODO: migrate to camino */
 
     // 2. Git Capability Audit
     if config.git.commit {
@@ -261,8 +261,8 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
         if let Some((k, docs_config)) = config.directories.iter().find(|(k, _)| k.to_lowercase() == "docs") {
             actual_docs_key = k.clone();
             let path = docs_config.path.clone();
-            original_docs_path_str = path.strip_prefix(project_root).unwrap_or(&path).to_string_lossy().to_string();
-            original_docs_path = Some(path);
+            original_docs_path_str = path.strip_prefix(project_root).unwrap_or(path.as_path()).as_str().to_string(); /* TODO: migrate to camino */
+            original_docs_path = Some(path.into()); /* TODO: migrate to camino */
         }
 
         let isolated_docs_path = project_root.join("_tmp").join("projr").join(&current_version).join("docs");
@@ -335,7 +335,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
             if quarto_exists || bookdown_exists {
                 if let Some(orig_path) = original_docs_path.as_ref() {
                     if let Some(docs_mut) = config.directories.get_mut(&actual_docs_key) {
-                        docs_mut.path = orig_path.clone();
+                        docs_mut.path = camino::Utf8PathBuf::from_path_buf(orig_path.clone()).unwrap(); /* TODO: migrate to camino */
                     }
                 } else {
                     config.directories.remove(&actual_docs_key);
@@ -418,13 +418,13 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
                     for dest_target in &config.dest {
                         if let Some(remote) = remotes.get(dest_target) {
                             for tag in &remote.content {
-                                if let Ok(dir_path) = config.get_path(project_root.as_std_path(), tag) {
+                                if let Ok(dir_path) = config.get_path(project_root, tag) /* TODO: migrate to camino */ {
                                     if dir_path.exists() {
                                         crate::cas::ingest_directory(
                                             camino::Utf8Path::from_path(project_root.as_std_path()).ok_or_else(|| format!("Invalid utf8 path"))?,
-                                            camino::Utf8Path::from_path(&remote.path).ok_or_else(|| format!("Invalid utf8 path"))?,
+                                            remote.path.as_path(),
                                             tag,
-                                            camino::Utf8Path::from_path(&dir_path).ok_or_else(|| format!("Invalid utf8 path"))?,
+                                            dir_path.as_path(),
                                             &initial_version.to_string(false)
                                         ).map_err(|e| format!("Failed remote CAS export for {}: {}", tag, e))?;
                                     }
@@ -453,7 +453,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
             if quarto_exists || bookdown_exists {
                 if let Some(orig_path) = original_docs_path.as_ref() {
                     if let Some(docs_mut) = config.directories.get_mut(&actual_docs_key) {
-                        docs_mut.path = orig_path.clone();
+                        docs_mut.path = camino::Utf8PathBuf::from_path_buf(orig_path.clone()).unwrap(); /* TODO: migrate to camino */
                     }
                 } else {
                     config.directories.remove(&actual_docs_key);
@@ -481,7 +481,7 @@ pub fn build_project(project_root: &camino::Utf8Path, mode: BuildMode, cli_profi
             if quarto_exists || bookdown_exists {
                 if let Some(orig_path) = original_docs_path.as_ref() {
                     if let Some(docs_mut) = config.directories.get_mut(&actual_docs_key) {
-                        docs_mut.path = orig_path.clone();
+                        docs_mut.path = camino::Utf8PathBuf::from_path_buf(orig_path.clone()).unwrap(); /* TODO: migrate to camino */
                     }
                 } else {
                     config.directories.remove(&actual_docs_key);

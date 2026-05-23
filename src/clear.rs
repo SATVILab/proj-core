@@ -76,9 +76,9 @@ pub fn clear_pre(
     }
 
     let is_pre = clear_output == Some("pre");
-    let cache_base = match config.get_path(project_root, "cache") {
+    let cache_base = match config.get_path(camino::Utf8Path::from_path(project_root).unwrap(), "cache") {
         Ok(p) => p,
-        Err(_) => project_root.join("_tmp"), // default fallback
+        Err(_) => camino::Utf8PathBuf::from_path_buf(project_root.join("_tmp")).unwrap(), // default fallback
     };
 
     for (label, _) in &config.directories {
@@ -108,7 +108,7 @@ pub fn clear_pre(
 
         // If 'pre', clear the public unsafe path
         if is_pre {
-            let unsafe_path = match config.get_path(project_root, label) {
+            let unsafe_path = match config.get_path(camino::Utf8Path::from_path(project_root).unwrap(), label) {
                 Ok(p) => p,
                 Err(_) => continue,
             };
@@ -139,7 +139,7 @@ pub fn clear_post(
     is_single_doc_engine: bool,
 ) -> anyhow::Result<()> {
     if !is_dev && is_single_doc_engine {
-        if let Ok(docs_path) = config.get_path(project_root, "docs") {
+        if let Ok(docs_path) = config.get_path(camino::Utf8Path::from_path(project_root).unwrap(), "docs") {
             if docs_path.exists() {
                 for entry in fs::read_dir(&docs_path)? {
                     let entry = entry?;
@@ -158,7 +158,7 @@ pub fn clear_post(
         for (label, _) in &config.directories {
             let lower_label = label.to_lowercase();
             if lower_label.starts_with("output") || lower_label == "data" {
-                if let Ok(unsafe_path) = config.get_path(project_root, label) {
+                if let Ok(unsafe_path) = config.get_path(camino::Utf8Path::from_path(project_root).unwrap(), label) {
                     if unsafe_path.exists() {
                         for entry in fs::read_dir(&unsafe_path)? {
                             let entry = entry?;

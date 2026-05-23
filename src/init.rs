@@ -133,19 +133,17 @@ pub fn init_directories() -> Result<(), String> {
     // Read config to find resolved paths
     let config = yml_read(false).unwrap_or_else(|_| {
         let default_config = ProjConfig::default();
-        // TODO: migrate to camino
-        default_config.validate_and_resolve(project_root.as_std_path(), false).unwrap()
+        default_config.validate_and_resolve(camino::Utf8Path::from_path(&project_root).unwrap(), false).unwrap()
     });
 
     let default_labels = ["cache", "raw", "output", "docs"];
     for label in &default_labels {
-        // TODO: migrate to camino
-        if let Ok(dir_path) = config.get_path(project_root.as_std_path(), label) {
+        if let Ok(dir_path) = config.get_path(camino::Utf8Path::from_path(&project_root).unwrap(), label) {
             if !dir_path.exists() {
-                println!("Creating directory: {}", dir_path.display());
+                println!("Creating directory: {}", dir_path);
                 fs::create_dir_all(&dir_path).map_err(|e| format!("Failed to create {}: {}", label, e))?;
             } else {
-                println!("Directory already exists: {}", dir_path.display());
+                println!("Directory already exists: {}", dir_path);
             }
         }
     }
