@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use camino::{Utf8Path, Utf8PathBuf};
 use serde_json::Value;
 
 /// Extracts and normalizes profile tags from PROJR_PROFILE environment variable.
@@ -22,7 +22,7 @@ fn is_valid_profile_name(s: &str) -> bool {
 }
 
 /// Spawns a clean `_projr-<name>.yml` workspace node.
-pub fn create_profile(name: &str, project_root: &Path) -> anyhow::Result<PathBuf> {
+pub fn create_profile(name: &str, project_root: &Utf8Path) -> anyhow::Result<Utf8PathBuf> {
     if name == "default" || name == "local" || !is_valid_profile_name(name) {
         anyhow::bail!("Invalid profile name: {}", name);
     }
@@ -55,7 +55,7 @@ fn nullify_values(val: &mut Value) {
 }
 
 /// Scans the baseline `_proj.yml` structure and clones its layout into `_projr-local.yml` with all assignments mapped to null.
-pub fn create_local_profile(project_root: &Path) -> anyhow::Result<PathBuf> {
+pub fn create_local_profile(project_root: &Utf8Path) -> anyhow::Result<Utf8PathBuf> {
     let baseline_path = project_root.join("_proj.yml");
     let local_path = project_root.join("_projr-local.yml");
 
@@ -82,7 +82,7 @@ pub fn create_local_profile(project_root: &Path) -> anyhow::Result<PathBuf> {
 }
 
 /// Permanently deletes the matching config node.
-pub fn delete_profile(name: &str, project_root: &Path) -> anyhow::Result<()> {
+pub fn delete_profile(name: &str, project_root: &Utf8Path) -> anyhow::Result<()> {
     let filename = format!("_projr-{}.yml", name);
     let path = project_root.join(filename);
     if path.exists() {

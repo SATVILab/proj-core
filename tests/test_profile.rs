@@ -106,8 +106,10 @@ build:
   scripts: [local.sh]
 ").unwrap();
 
+    let base_dir_utf8 = camino::Utf8PathBuf::try_from(base_dir.to_path_buf()).unwrap();
+
     // Passing explicit profile to avoid env var race conditions during parallel tests
-    let combined = get_combined_yml(Some("stage, theme"), base_dir).unwrap();
+    let combined = get_combined_yml(Some("stage, theme"), base_dir_utf8.as_std_path()).unwrap();
 
     // Precedence: Local > Profile > Base
     // dest: stage_remote (from stage)
@@ -127,9 +129,10 @@ build:
   dest: [base_remote]
 ").unwrap();
 
-    create_local_profile(base_dir).unwrap();
+    let base_dir_utf8 = camino::Utf8PathBuf::try_from(base_dir.to_path_buf()).unwrap();
+    create_local_profile(&base_dir_utf8).unwrap();
 
-    let local_content = fs::read_to_string(base_dir.join("_projr-local.yml")).unwrap();
+    let local_content = fs::read_to_string(base_dir_utf8.join("_projr-local.yml")).unwrap();
     let local_val: serde_json::Value = serde_yaml::from_str(&local_content).unwrap();
 
     // It should have the same structure but null values
