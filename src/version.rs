@@ -3,6 +3,7 @@ use regex::Regex;
 use std::fs;
 use crate::ignore::root;
 use camino::Utf8Path;
+use anyhow::Context;
 
 /// Represents the project version separated into standard semantic components.
 ///
@@ -191,9 +192,9 @@ pub fn version_set_at(root: &Utf8Path, version_str: &str) -> anyhow::Result<()> 
 /// version_set("1.0.0").unwrap();
 /// ```
 pub fn version_set(version_str: &str) -> anyhow::Result<()> {
-    let root = root().ok_or_else(|| anyhow::anyhow!("Could not find project root containing VERSION file"))?;
+    let root = root().context("Could not find project root containing VERSION file.")?;
     let root_utf8 = camino::Utf8PathBuf::try_from(root)
-        .map_err(|e| anyhow::anyhow!("Non-UTF-8 path: {}", e))?;
+        .context("Non-UTF-8 path encountered.")?;
     version_set_at(&root_utf8, version_str)
 }
 
