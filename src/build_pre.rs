@@ -5,7 +5,8 @@ use crate::git::{get_github_token, execute_authenticated_git, create_git_provide
 use crate::yml::GlobalConfig;
 
 pub fn pre_flight_git_check(config: &GlobalConfig, repo_dir: PathBuf) -> Result<(), String> {
-    let provider = create_git_provider(config.git.engine, repo_dir)?;
+    let provider = // TODO: migrate to camino
+    create_git_provider(config.git.engine, camino::Utf8PathBuf::try_from(repo_dir).unwrap()).map_err(|e| e.to_string())?;
 
     // Check if user has context configurations mapped out
     let name = provider.get_user_name().unwrap_or_else(|| "Unknown".to_string());
@@ -113,7 +114,7 @@ pub fn run_pre_flight_checks(
     let needs_remote = config.git.push || (is_prod_run && config.restrictions.not_behind == Some(true)) || (is_prod_run && config.restrictions.not_behind.is_none());
 
     if needs_remote && config.config.git.use_proj_cred_helper {
-        let token = get_github_token()?;
+        let token = get_github_token().map_err(|e| e.to_string())?;
         resolved_token = Some(token);
     }
 
@@ -326,7 +327,8 @@ fn has_tracking_remote(project_root: &camino::Utf8Path) -> bool {
 fn is_behind_remote(project_root: &camino::Utf8Path, token: Option<&str>) -> Result<bool, String> {
     // Perform fetch
     if let Some(t) = token {
-        execute_authenticated_git(&["fetch"], t, Some(project_root.as_std_path()))?;
+        // TODO: migrate to camino
+        execute_authenticated_git(&["fetch"], t, Some(project_root)).map_err(|e| e.to_string())?;
     } else {
         let mut fetch_cmd = Command::new("git");
         fetch_cmd.args(["fetch"]);

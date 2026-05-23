@@ -1,37 +1,38 @@
+use anyhow::Context;
 use std::process::Command;
-use std::path::PathBuf;
+
 use std::io::Write;
 
 pub trait GitProvider {
     fn is_available(&self) -> bool;
     fn get_user_name(&self) -> Option<String>;
     fn get_user_email(&self) -> Option<String>;
-    fn commit_all(&self, message: &str) -> Result<(), String>;
-    fn push(&self, remote: &str, branch: &str) -> Result<(), String>;
-    fn is_behind_remote(&self, remote: &str, branch: &str) -> Result<bool, String>;
+    fn commit_all(&self, message: &str) -> anyhow::Result<()>;
+    fn push(&self, remote: &str, branch: &str) -> anyhow::Result<()>;
+    fn is_behind_remote(&self, remote: &str, branch: &str) -> anyhow::Result<bool>;
 }
 
 pub struct SystemGit {
-    repo_path: PathBuf,
+    repo_path: camino::Utf8PathBuf,
 }
 
 impl SystemGit {
-    pub fn new(repo_path: PathBuf) -> Self {
+    pub fn new(repo_path: camino::Utf8PathBuf) -> Self {
         Self { repo_path }
     }
 
     // Helper to execute standard git actions safely with uniform string handling
-    fn run_cmd(&self, args: &[&str]) -> Result<String, String> {
+    fn run_cmd(&self, args: &[&str]) -> anyhow::Result<String> {
         let output = Command::new("git")
             .current_dir(&self.repo_path)
             .args(args)
             .output()
-            .map_err(|e| format!("Failed to execute system git process: {}", e))?;
+            .context("Failed to execute system git process")?;
 
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
         } else {
-            Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+            anyhow::bail!("{}", String::from_utf8_lossy(&output.stderr).trim())
         }
     }
 }
@@ -50,18 +51,18 @@ impl GitProvider for SystemGit {
         self.run_cmd(&["config", "user.email"]).ok()
     }
 
-    fn commit_all(&self, message: &str) -> Result<(), String> {
+    fn commit_all(&self, message: &str) -> anyhow::Result<()> {
         self.run_cmd(&["add", "-A"])?;
         self.run_cmd(&["commit", "-m", message])?;
         Ok(())
     }
 
-    fn push(&self, remote: &str, branch: &str) -> Result<(), String> {
+    fn push(&self, remote: &str, branch: &str) -> anyhow::Result<()> {
         self.run_cmd(&["push", remote, branch])?;
         Ok(())
     }
 
-    fn is_behind_remote(&self, remote: &str, branch: &str) -> Result<bool, String> {
+    fn is_behind_remote(&self, remote: &str, branch: &str) -> anyhow::Result<bool> {
         // Fetch tracking info silently first
         let _ = self.run_cmd(&["fetch", remote]);
 
@@ -75,7 +76,7 @@ impl GitProvider for SystemGit {
 }
 
 // Unified Factory pattern isolated away from your pipeline logic
-pub fn create_git_provider(engine: crate::yml::GitEngine, repo_path: PathBuf) -> Result<Box<dyn GitProvider>, String> {
+pub fn create_git_provider(engine: crate::yml::GitEngine, repo_path: camino::Utf8PathBuf) -> anyhow::Result<Box<dyn GitProvider>> {
     let provider = Box::new(SystemGit::new(repo_path));
 
     match engine {
@@ -83,13 +84,13 @@ pub fn create_git_provider(engine: crate::yml::GitEngine, repo_path: PathBuf) ->
             if provider.is_available() {
                 Ok(provider)
             } else {
-                Err("System Git executable could not be resolved in the current environment PATH.".to_string())
+                anyhow::bail!("System Git executable could not be resolved in the current environment PATH.")
             }
         }
     }
 }
 
-pub fn get_github_token() -> Result<String, String> {
+pub fn get_github_token() -> anyhow::Result<String> {
     // Track A: Environment Context Inspection
     let env_vars = ["GITHUB_PAT", "GH_TOKEN", "GITHUB_TOKEN"];
     for var in &env_vars {
@@ -108,13 +109,13 @@ pub fn get_github_token() -> Result<String, String> {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to spawn git credential fill: {}", e))?;
+        .context("Failed to spawn git credential fill")?;
 
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(b"protocol=https\nhost=github.com\n\n");
     }
 
-    let output = child.wait_with_output().map_err(|e| format!("Failed to wait on git credential fill: {}", e))?;
+    let output = child.wait_with_output().context("Failed to wait on git credential fill")?;
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
@@ -139,20 +140,10 @@ pub fn get_github_token() -> Result<String, String> {
     }
 
     // Output structured error if token is missing
-    Err("Error: GitHub authentication token not found.
-Authentication is required to interact with remote repositories via git push or fetch.
-
-To resolve this, please execute one of the following options:
-Option A (Environment Variable):
-    Set the GITHUB_PAT environment variable in your active terminal profile.
-Option B (GitHub CLI):
-    Install the 'gh' utility and run 'gh auth login' to authenticate your host.
-Option C (Git Helper Setup):
-    Approve host access directly inside your local system credential helper:
-    git credential approve < echo -e \"protocol=https\\nhost=github.com\\nusername=user\\npassword=YOUR_PAT\"".to_string())
+    anyhow::bail!("Error: GitHub authentication token not found.\nAuthentication is required to interact with remote repositories via git push or fetch.\n\nTo resolve this, please execute one of the following options:\nOption A (Environment Variable):\n    Set the GITHUB_PAT environment variable in your active terminal profile.\nOption B (GitHub CLI):\n    Install the 'gh' utility and run 'gh auth login' to authenticate your host.\nOption C (Git Helper Setup):\n    Approve host access directly inside your local system credential helper:\n    git credential approve < echo -e \"protocol=https\\nhost=github.com\\nusername=user\\npassword=YOUR_PAT\"")
 }
 
-pub fn execute_authenticated_git(args: &[&str], token: &str, current_dir: Option<&std::path::Path>) -> Result<(), String> {
+pub fn execute_authenticated_git(args: &[&str], token: &str, current_dir: Option<&camino::Utf8Path>) -> anyhow::Result<()> {
     // Construct an inline script helper string that Git will execute to read the password.
     // Git credential helpers expect output formatted as key=value lines.
     let inline_helper = format!("!f() {{ echo \"password={}\"; }}; f", token);
@@ -171,11 +162,11 @@ pub fn execute_authenticated_git(args: &[&str], token: &str, current_dir: Option
         cmd.current_dir(dir);
     }
 
-    let status = cmd.status().map_err(|e| format!("Failed to execute system Git subprocess: {}", e))?;
+    let status = cmd.status().context("Failed to execute system Git subprocess")?;
 
     match status {
         s if s.success() => Ok(()),
-        s => Err(format!("Git command exited with failure status code: {}", s)),
+        s => anyhow::bail!("Git command exited with failure status code: {}", s),
     }
 }
 
@@ -190,22 +181,21 @@ pub fn is_git_installed() -> bool {
 
 /// Queries local, global, and system variables via `git config --get user.name` and `git config --get user.email`.
 /// If either stdout buffer returns blank or throws an error, return an explicit error string detailing exactly what config parameter is missing and how the user can configure it.
-pub fn check_git_profile(current_dir: Option<&std::path::Path>) -> Result<(), String> {
-    let check_config = |key: &str| -> Result<(), String> {
+pub fn check_git_profile(current_dir: Option<&camino::Utf8Path>) -> anyhow::Result<()> {
+    let check_config = |key: &str| -> anyhow::Result<()> {
         let mut cmd = Command::new("git");
         cmd.args(["config", "--get", key]);
         if let Some(dir) = current_dir {
             cmd.current_dir(dir);
         }
         let output = cmd.output()
-            .map_err(|e| format!("Failed to execute git config check for {}: {}", key, e))?;
+            .context("Failed to execute git config check")?;
 
         if !output.status.success() || String::from_utf8_lossy(&output.stdout).trim().is_empty() {
-            return Err(format!(
-                "Git configuration missing: '{}' is not set.\n\
-                 Please configure it using: git config --global {} \"Your Value\"",
+            anyhow::bail!(
+                "Git configuration missing: '{}' is not set.\nPlease configure it using: git config --global {} \"Your Value\"",
                 key, key
-            ));
+            );
         }
         Ok(())
     };
@@ -218,7 +208,7 @@ pub fn check_git_profile(current_dir: Option<&std::path::Path>) -> Result<(), St
 
 /// Runs `git add -A` to stage modified and untracked changes.
 /// Runs `git commit -m "<message>"`. Squelch errors gracefully if there are no modifications staged to be committed.
-pub fn git_commit_all(message: &str, current_dir: Option<&std::path::Path>) -> Result<(), String> {
+pub fn git_commit_all(message: &str, current_dir: Option<&camino::Utf8Path>) -> anyhow::Result<()> {
     // git add -A
     let mut add_cmd = Command::new("git");
     add_cmd.args(["add", "-A"]);
@@ -227,10 +217,10 @@ pub fn git_commit_all(message: &str, current_dir: Option<&std::path::Path>) -> R
     }
 
     let add_output = add_cmd.output()
-        .map_err(|e| format!("Failed to execute 'git add -A': {}", e))?;
+        .context("Failed to execute 'git add -A'")?;
 
     if !add_output.status.success() {
-        return Err(format!("'git add -A' failed: {}", String::from_utf8_lossy(&add_output.stderr)));
+        anyhow::bail!("'git add -A' failed: {}", String::from_utf8_lossy(&add_output.stderr));
     }
 
     // git commit -m message
@@ -241,7 +231,7 @@ pub fn git_commit_all(message: &str, current_dir: Option<&std::path::Path>) -> R
     }
 
     let commit_output = commit_cmd.output()
-        .map_err(|e| format!("Failed to execute 'git commit': {}", e))?;
+        .context("Failed to execute 'git commit'")?;
 
     // Squelch errors gracefully if there are no modifications staged to be committed
     let stdout = String::from_utf8_lossy(&commit_output.stdout);
@@ -255,14 +245,14 @@ pub fn git_commit_all(message: &str, current_dir: Option<&std::path::Path>) -> R
            combined_output.contains("no changes added to commit") {
             return Ok(()); // Squelch error
         }
-        return Err(format!("'git commit' failed: {}", stderr));
+        anyhow::bail!("'git commit' failed: {}", stderr);
     }
 
     Ok(())
 }
 
 /// Runs `git push` to upload tracking offsets upstream.
-pub fn git_push(current_dir: Option<&std::path::Path>, token: Option<&str>) -> Result<(), String> {
+pub fn git_push(current_dir: Option<&camino::Utf8Path>, token: Option<&str>) -> anyhow::Result<()> {
     if let Some(t) = token {
         execute_authenticated_git(&["push"], t, current_dir)
     } else {
@@ -273,10 +263,10 @@ pub fn git_push(current_dir: Option<&std::path::Path>, token: Option<&str>) -> R
         }
 
         let output = push_cmd.output()
-            .map_err(|e| format!("Failed to execute 'git push': {}", e))?;
+            .context("Failed to execute 'git push'")?;
 
         if !output.status.success() {
-            return Err(format!("'git push' failed: {}", String::from_utf8_lossy(&output.stderr)));
+            anyhow::bail!("'git push' failed: {}", String::from_utf8_lossy(&output.stderr));
         }
 
         Ok(())
@@ -295,14 +285,14 @@ mod tests {
         let original_path = env::var("PATH").unwrap_or_default();
         unsafe { env::set_var("PATH", "") };
 
-        let result = create_git_provider(GitEngine::Auto, PathBuf::from("."));
+        let result = create_git_provider(GitEngine::Auto, camino::Utf8PathBuf::from("."));
 
         // Restore environment safety
         unsafe { env::set_var("PATH", original_path) };
 
         assert!(result.is_err());
         match result {
-            Err(e) => assert_eq!(e, "System Git executable could not be resolved in the current environment PATH."),
+            Err(e) => assert_eq!(e.to_string(), "System Git executable could not be resolved in the current environment PATH."),
             Ok(_) => panic!("Expected an error when git is not in PATH"),
         }
     }
