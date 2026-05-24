@@ -110,11 +110,11 @@ impl ProjVersion {
 /// ```rust
 /// use std::fs;
 /// use tempfile::TempDir;
-/// use camino::Utf8PathBuf;
+/// use camino::Utf8Path;
 /// use proj::version::{ProjVersion, version_get_from};
 ///
 /// let temp = TempDir::new().unwrap();
-/// let temp_utf8 = Utf8PathBuf::try_from(temp.path().to_path_buf()).unwrap();
+/// let temp_utf8 = Utf8Path::from_path(temp.path()).unwrap();
 /// let version_path = temp_utf8.join("VERSION");
 /// fs::write(&version_path, "Version: v1.0.0").unwrap();
 ///
@@ -141,8 +141,7 @@ pub fn version_get_from(root: &Utf8Path) -> Option<ProjVersion> {
 /// ```
 pub fn version_get() -> Option<ProjVersion> {
     let root = root()?;
-    let root_utf8 = camino::Utf8PathBuf::try_from(root).ok()?;
-    version_get_from(&root_utf8)
+    version_get_from(&root)
 }
 
 /// Updates the current project version globally using a specified root.
@@ -158,11 +157,11 @@ pub fn version_get() -> Option<ProjVersion> {
 /// ```rust
 /// use std::fs;
 /// use tempfile::TempDir;
-/// use camino::Utf8PathBuf;
+/// use camino::Utf8Path;
 /// use proj::version::{ProjVersion, version_set_at};
 ///
 /// let temp = TempDir::new().unwrap();
-/// let temp_utf8 = Utf8PathBuf::try_from(temp.path().to_path_buf()).unwrap();
+/// let temp_utf8 = Utf8Path::from_path(temp.path()).unwrap();
 /// let version_path = temp_utf8.join("VERSION");
 /// fs::write(&version_path, "v1.0.0").unwrap();
 ///
@@ -177,7 +176,7 @@ pub fn version_set_at(root: &Utf8Path, version_str: &str) -> anyhow::Result<()> 
     let version_file_path = root.join("VERSION");
     let content = format!("Version: {}", version.to_string(true));
 
-    fs::write(version_file_path, content)?;
+    fs::write(version_file_path, content).context("Failed to write version to file.")?;
     Ok(())
 }
 
@@ -193,9 +192,7 @@ pub fn version_set_at(root: &Utf8Path, version_str: &str) -> anyhow::Result<()> 
 /// ```
 pub fn version_set(version_str: &str) -> anyhow::Result<()> {
     let root = root().context("Could not find project root containing VERSION file.")?;
-    let root_utf8 = camino::Utf8PathBuf::try_from(root)
-        .context("Non-UTF-8 path encountered.")?;
-    version_set_at(&root_utf8, version_str)
+    version_set_at(&root, version_str)
 }
 
 #[cfg(test)]

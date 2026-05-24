@@ -41,12 +41,12 @@ impl Default for IgnoreType {
 /// use proj::ignore::update_ignores_for;
 ///
 /// let temp = TempDir::new().unwrap();
-/// let root = temp.path().to_path_buf();
+/// let root = camino::Utf8Path::from_path(temp.path()).unwrap();
 ///
 /// use proj::yml::{ResolvedGitConfig, RestrictionsConfig, GlobalConfig};
 /// let mut dirs = HashMap::new();
 /// dirs.insert("raw".to_string(), ResolvedDir {
-///     path: camino::Utf8PathBuf::from_path_buf(root.join("_raw")).unwrap(),
+///     path: root.join("_raw"),
 ///     ignore: IgnoreConfig::Single("all".to_string())
 /// });
 ///
@@ -62,7 +62,7 @@ impl Default for IgnoreType {
 ///     old_dev_remove: None,
 ///     parameters: Default::default()
 /// };
-/// update_ignores_for(camino::Utf8Path::from_path(&root).unwrap(), &validated).unwrap();
+/// update_ignores_for(&root, &validated).unwrap();
 ///
 /// assert!(root.join(".gitignore").exists());
 /// ```
@@ -209,9 +209,10 @@ fn update_ignore_file(path: &camino::Utf8Path, ignores: &[String]) -> anyhow::Re
 /// use proj::ignore::root_from;
 ///
 /// let temp = TempDir::new().unwrap();
-/// fs::write(temp.path().join("VERSION"), "v1.0.0").unwrap();
+/// let temp_path = camino::Utf8Path::from_path(temp.path()).unwrap();
+/// fs::write(temp_path.join("VERSION"), "v1.0.0").unwrap();
 ///
-/// let result = root_from(camino::Utf8Path::from_path(temp.path()).unwrap()).unwrap();
+/// let result = root_from(temp_path).unwrap();
 /// assert!(result.exists());
 /// ```
 pub fn root_from(start_path: &camino::Utf8Path) -> Option<camino::Utf8PathBuf> {
@@ -221,7 +222,7 @@ pub fn root_from(start_path: &camino::Utf8Path) -> Option<camino::Utf8PathBuf> {
 
     loop {
         if current_path.join("VERSION").exists() {
-            first_version_dir = Some(current_path.to_path_buf());
+            first_version_dir = Some(current_path.to_owned());
             break;
         }
         match current_path.parent() {
@@ -246,7 +247,7 @@ pub fn root_from(start_path: &camino::Utf8Path) -> Option<camino::Utf8PathBuf> {
         }
 
         if search_path.join("VERSION").exists() && (search_path.join("_proj.yml").exists() || search_path.join(".git").exists()) {
-            return Some(search_path.to_path_buf());
+            return Some(search_path.to_owned());
         }
     }
 
@@ -534,10 +535,10 @@ fn append_unignores(path: &camino::Utf8Path, ignores: &[String]) -> anyhow::Resu
 /// use proj::ignore::{add_manual_ignores, IgnoreType};
 ///
 /// let temp = TempDir::new().unwrap();
-/// let root = temp.path().to_path_buf();
+/// let root = camino::Utf8Path::from_path(temp.path()).unwrap();
 /// fs::write(root.join(".gitignore"), "# --- PROJ MANAGED ---\n").unwrap();
 ///
-/// add_manual_ignores(camino::Utf8Path::from_path(&root).unwrap(), &["temp.log".to_string()], true, IgnoreType::Git).unwrap();
+/// add_manual_ignores(root, &["temp.log".to_string()], true, IgnoreType::Git).unwrap();
 ///
 /// let contents = fs::read_to_string(root.join(".gitignore")).unwrap();
 /// assert!(contents.contains("temp.log"));
@@ -608,10 +609,10 @@ pub fn add_manual_ignores(
 /// use proj::ignore::{remove_manual_ignores, IgnoreType};
 ///
 /// let temp = TempDir::new().unwrap();
-/// let root = temp.path().to_path_buf();
+/// let root = camino::Utf8Path::from_path(temp.path()).unwrap();
 /// fs::write(root.join(".gitignore"), "# --- PROJ MANAGED ---\n# --- END PROJ MANAGED ---\n").unwrap();
 ///
-/// remove_manual_ignores(camino::Utf8Path::from_path(&root).unwrap(), &["!!temp.log".to_string()], IgnoreType::Git).unwrap();
+/// remove_manual_ignores(root, &["!!temp.log".to_string()], IgnoreType::Git).unwrap();
 ///
 /// let contents = fs::read_to_string(root.join(".gitignore")).unwrap();
 /// assert!(contents.contains("!temp.log"));
