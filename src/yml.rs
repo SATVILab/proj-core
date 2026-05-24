@@ -1,11 +1,11 @@
-use anyhow::Context;
-use serde::{Serialize, Deserialize};
-use std::collections::HashMap;
-use camino::{Utf8Path, Utf8PathBuf};
-use std::fs;
-use serde_json::Value;
 use crate::ignore::{root, update_ignores};
 use crate::profile::get_active_profiles;
+use anyhow::Context;
+use camino::{Utf8Path, Utf8PathBuf};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+use std::fs;
 
 /// Represents the complete structure of a `_proj.yml` configuration file.
 ///
@@ -63,7 +63,12 @@ pub struct ProjConfig {
     pub dev: DevConfig,
     /// Captures arbitrary parameters maps under any matching alias keys.
     /// Evaluates aliases in order: "parameters", "parameter", "params", "param".
-    #[serde(alias = "parameter", alias = "params", alias = "param", default = "default_parameters")]
+    #[serde(
+        alias = "parameter",
+        alias = "params",
+        alias = "param",
+        default = "default_parameters"
+    )]
     pub parameters: serde_yaml::Value,
     #[serde(default)]
     pub metadata: Option<Value>,
@@ -243,14 +248,14 @@ fn default_ignore() -> IgnoreConfig {
 /// ```rust
 /// use std::collections::HashMap;
 /// use proj::yml::{ValidatedConfig, ResolvedGitConfig, RestrictionsConfig, GlobalConfig};
-/// let config = ValidatedConfig { 
-///     remotes: Default::default(), 
+/// let config = ValidatedConfig {
+///     remotes: Default::default(),
 ///     dest: vec![],
-///     config: GlobalConfig::default(), 
-///     directories: HashMap::new(), 
-///     git: ResolvedGitConfig { commit: false, push: false }, 
-///     restrictions: RestrictionsConfig::default(), 
-///     clear_output: None, 
+///     config: GlobalConfig::default(),
+///     directories: HashMap::new(),
+///     git: ResolvedGitConfig { commit: false, push: false },
+///     restrictions: RestrictionsConfig::default(),
+///     clear_output: None,
 ///     output_run: None,
 ///     old_dev_remove: None,
 ///     parameters: Default::default()
@@ -303,7 +308,11 @@ impl ProjConfig {
     /// let validated = config.validate_and_resolve(&Utf8PathBuf::from("."), false).unwrap();
     /// assert!(validated.directories.contains_key("raw"));
     /// ```
-    pub fn validate_and_resolve(&self, project_root: &Utf8Path, is_dev: bool) -> anyhow::Result<ValidatedConfig> {
+    pub fn validate_and_resolve(
+        &self,
+        project_root: &Utf8Path,
+        is_dev: bool,
+    ) -> anyhow::Result<ValidatedConfig> {
         let mut resolved = HashMap::new();
 
         // 0. Validate Structural Constraints
@@ -311,11 +320,16 @@ impl ProjConfig {
             if let Some(remotes) = &self.remotes.local {
                 for dest_tag in dest {
                     if !remotes.contains_key(dest_tag) {
-                        anyhow::bail!("Build destination target '{}' is not registered in remotes.local inventory.", dest_tag);
+                        anyhow::bail!(
+                            "Build destination target '{}' is not registered in remotes.local inventory.",
+                            dest_tag
+                        );
                     }
                 }
             } else {
-                 anyhow::bail!("build.dest contains targets but remotes.local is completely undefined.");
+                anyhow::bail!(
+                    "build.dest contains targets but remotes.local is completely undefined."
+                );
             }
         }
 
@@ -345,13 +359,16 @@ impl ProjConfig {
                     _ if lower_label.starts_with("output") => Utf8PathBuf::from("_output"),
                     _ if lower_label.starts_with("docs") => Utf8PathBuf::from("docs"),
                     _ => unreachable!(),
-                }
+                },
             };
 
-            resolved.insert(label.clone(), ResolvedDir {
-                path,
-                ignore: config.ignore.clone(),
-            });
+            resolved.insert(
+                label.clone(),
+                ResolvedDir {
+                    path,
+                    ignore: config.ignore.clone(),
+                },
+            );
         }
 
         // 2. Inject missing default base targets if completely omitted from the YAML file
@@ -366,17 +383,23 @@ impl ProjConfig {
             // Check if any existing key satisfies this base (case-insensitive check)
             let exists = resolved.keys().any(|k| k.to_lowercase() == base_key);
             if !exists {
-                resolved.insert(base_key.to_string(), ResolvedDir {
-                    path: Utf8PathBuf::from(default_path),
-                    ignore: default_ignore(),
-                });
+                resolved.insert(
+                    base_key.to_string(),
+                    ResolvedDir {
+                        path: Utf8PathBuf::from(default_path),
+                        ignore: default_ignore(),
+                    },
+                );
             }
         }
 
         // 3. Resolve Git configuration
         let has_git = project_root.join(".git").exists();
 
-        let mut resolved_git = ResolvedGitConfig { commit: false, push: false };
+        let mut resolved_git = ResolvedGitConfig {
+            commit: false,
+            push: false,
+        };
 
         if is_dev {
             // Dev builds bypass git
@@ -439,14 +462,14 @@ impl ValidatedConfig {
     ///     ignore: IgnoreConfig::Single("all".to_string())
     /// });
     ///
-    /// let config = ValidatedConfig { 
-    ///     remotes: Default::default(), 
+    /// let config = ValidatedConfig {
+    ///     remotes: Default::default(),
     ///     dest: vec![],
-    ///     config: GlobalConfig::default(), 
-    ///     directories: dirs, 
-    ///     git: ResolvedGitConfig { commit: false, push: false }, 
-    ///     restrictions: RestrictionsConfig::default(), 
-    ///     clear_output: None, 
+    ///     config: GlobalConfig::default(),
+    ///     directories: dirs,
+    ///     git: ResolvedGitConfig { commit: false, push: false },
+    ///     restrictions: RestrictionsConfig::default(),
+    ///     clear_output: None,
     ///     output_run: None,
     ///     old_dev_remove: None,
     ///     parameters: Default::default()
@@ -462,19 +485,28 @@ impl ValidatedConfig {
 
         // Rule B: Dynamic prefix parsing fallback for unlisted sub-labels
         let lower_label = label.to_lowercase();
-        let base_prefix = if lower_label.starts_with("cache") { Some("cache") }
-            else if lower_label.starts_with("raw") { Some("raw") }
-            else if lower_label.starts_with("output") { Some("output") }
-            else if lower_label.starts_with("docs") { Some("docs") }
-            else { None };
+        let base_prefix = if lower_label.starts_with("cache") {
+            Some("cache")
+        } else if lower_label.starts_with("raw") {
+            Some("raw")
+        } else if lower_label.starts_with("output") {
+            Some("output")
+        } else if lower_label.starts_with("docs") {
+            Some("docs")
+        } else {
+            None
+        };
 
         if let Some(prefix) = base_prefix {
             // Find the base directory configuration (which is guaranteed to exist due to our injector)
             // Perform case-insensitive lookup to avoid panic if base was provided in different casing
-            let base_dir = &self.directories
+            let base_dir = &self
+                .directories
                 .iter()
                 .find(|(k, _)| k.to_lowercase() == prefix)
-                .unwrap().1.path;
+                .unwrap()
+                .1
+                .path;
 
             // Extract the suffix part
             let suffix = if label.len() > prefix.len() {
@@ -495,7 +527,10 @@ impl ValidatedConfig {
 
             Ok(make_absolute(project_root, &resolved_path))
         } else {
-            anyhow::bail!("Requested label '{}' does not match any valid structural prefix.", label)
+            anyhow::bail!(
+                "Requested label '{}' does not match any valid structural prefix.",
+                label
+            )
         }
     }
 }
@@ -527,7 +562,14 @@ pub fn deep_merge(target: Value, source: Value) -> Value {
 pub fn yml_get_filter_top_level(value: Value) -> Value {
     if let Value::Object(map) = value {
         let mut new_map = serde_json::Map::new();
-        let allowed_keys = ["directories", "build", "dev", "metadata", "remotes", "config"];
+        let allowed_keys = [
+            "directories",
+            "build",
+            "dev",
+            "metadata",
+            "remotes",
+            "config",
+        ];
         for (k, v) in map {
             if allowed_keys.contains(&k.as_str()) {
                 new_map.insert(k, v);
@@ -540,22 +582,33 @@ pub fn yml_get_filter_top_level(value: Value) -> Value {
 }
 
 /// Pipeline coordinator to merge `_proj.yml`, active profiles, and `_projr-local.yml`.
-pub fn get_combined_yml(explicit_profile: Option<&str>, base_dir: &Utf8Path) -> anyhow::Result<Value> {
+pub fn get_combined_yml(
+    explicit_profile: Option<&str>,
+    base_dir: &Utf8Path,
+) -> anyhow::Result<Value> {
     let base_path = base_dir.join("_proj.yml");
     let mut base_val = if base_path.exists() {
-        let content = fs::read_to_string(base_path.as_std_path()).context("Operation failed")?;
+        let content =
+            fs::read_to_string(&base_path).context("Failed to read base configuration.")?;
 
         // Multi-alias conflict safeguard
-        let raw_yaml: serde_yaml::Value = serde_yaml::from_str(&content).context("Operation failed")?;
+        let raw_yaml: serde_yaml::Value =
+            serde_yaml::from_str(&content).context("Failed to parse base configuration.")?;
         if let serde_yaml::Value::Mapping(map) = &raw_yaml {
             let aliases = ["parameters", "parameter", "params", "param"];
-            let found_count = aliases.iter().filter(|&a| map.contains_key(&serde_yaml::Value::String(a.to_string()))).count();
+            let found_count = aliases
+                .iter()
+                .filter(|&a| map.contains_key(&serde_yaml::Value::String(a.to_string())))
+                .count();
             if found_count > 1 {
-                anyhow::bail!("Configuration error: multiple 'parameters' aliases found in _proj.yml.");
+                anyhow::bail!(
+                    "Configuration error: multiple 'parameters' aliases found in _proj.yml."
+                );
             }
         }
 
-        let json_val: Value = serde_yaml::from_str(&content).context("Operation failed")?;
+        let json_val: Value =
+            serde_yaml::from_str(&content).context("Failed to parse configuration into JSON.")?;
         json_val
     } else {
         Value::Object(serde_json::Map::new())
@@ -563,7 +616,8 @@ pub fn get_combined_yml(explicit_profile: Option<&str>, base_dir: &Utf8Path) -> 
 
     let mut profiles = get_active_profiles();
     if let Some(ep) = explicit_profile {
-        let additional: Vec<String> = ep.split(|c| c == ',' || c == ';')
+        let additional: Vec<String> = ep
+            .split(|c| c == ',' || c == ';')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty() && s != "default" && s != "local")
             .collect();
@@ -573,16 +627,20 @@ pub fn get_combined_yml(explicit_profile: Option<&str>, base_dir: &Utf8Path) -> 
     for p in profiles {
         let profile_path = base_dir.join(format!("_projr-{}.yml", p));
         if profile_path.exists() {
-            let content = fs::read_to_string(profile_path.as_std_path()).context("Operation failed")?;
-            let yaml_val: Value = serde_yaml::from_str(&content).context("Operation failed")?;
+            let content = fs::read_to_string(&profile_path)
+                .context("Failed to read profile configuration.")?;
+            let yaml_val: Value =
+                serde_yaml::from_str(&content).context("Failed to parse profile configuration.")?;
             base_val = deep_merge(base_val, yaml_val);
         }
     }
 
     let local_path = base_dir.join("_projr-local.yml");
     if local_path.exists() {
-        let content = fs::read_to_string(local_path.as_std_path()).context("Operation failed")?;
-        let yaml_val: Value = serde_yaml::from_str(&content).context("Operation failed")?;
+        let content =
+            fs::read_to_string(&local_path).context("Failed to read local configuration.")?;
+        let yaml_val: Value =
+            serde_yaml::from_str(&content).context("Failed to parse local configuration.")?;
         base_val = deep_merge(base_val, yaml_val);
     }
 
@@ -591,9 +649,10 @@ pub fn get_combined_yml(explicit_profile: Option<&str>, base_dir: &Utf8Path) -> 
 
 pub fn yml_read_from(project_root: &Utf8Path, is_dev: bool) -> anyhow::Result<ValidatedConfig> {
     let combined_val = get_combined_yml(None, project_root)?;
-    let config: ProjConfig = serde_json::from_value(combined_val).context("Operation failed")?;
+    let config: ProjConfig = serde_json::from_value(combined_val)
+        .context("Failed to deserialize combined configuration.")?;
     let validated = config.validate_and_resolve(project_root, is_dev)?;
-    update_ignores(project_root, &validated).context("Operation failed")?;
+    update_ignores(project_root, &validated).context("Failed to update ignores.")?;
     Ok(validated)
 }
 
@@ -627,12 +686,15 @@ pub fn add_empty_parameters_block(project_root: &Utf8Path) -> anyhow::Result<boo
         return Ok(false);
     }
 
-    let content = fs::read_to_string(yml_path.as_std_path()).context("Operation failed")?;
-    let raw_value: serde_yaml::Value = serde_yaml::from_str(&content).context("Operation failed")?;
+    let content = fs::read_to_string(&yml_path).context("Failed to read project configuration.")?;
+    let raw_value: serde_yaml::Value =
+        serde_yaml::from_str(&content).context("Failed to parse project configuration.")?;
 
     if let serde_yaml::Value::Mapping(mut map) = raw_value {
         let aliases = ["parameters", "parameter", "params", "param"];
-        let found = aliases.iter().any(|&a| map.contains_key(&serde_yaml::Value::String(a.to_string())));
+        let found = aliases
+            .iter()
+            .any(|&a| map.contains_key(&serde_yaml::Value::String(a.to_string())));
 
         if found {
             return Ok(false);
@@ -643,8 +705,9 @@ pub fn add_empty_parameters_block(project_root: &Utf8Path) -> anyhow::Result<boo
             serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
         );
 
-        let new_content = serde_yaml::to_string(&map).context("Operation failed")?;
-        fs::write(yml_path.as_std_path(), new_content).context("Operation failed")?;
+        let new_content =
+            serde_yaml::to_string(&map).context("Failed to serialize configuration.")?;
+        fs::write(&yml_path, new_content).context("Failed to write configuration.")?;
         Ok(true)
     } else {
         let mut map = serde_yaml::Mapping::new();
@@ -652,15 +715,17 @@ pub fn add_empty_parameters_block(project_root: &Utf8Path) -> anyhow::Result<boo
             serde_yaml::Value::String("parameters".to_string()),
             serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
         );
-        let new_content = serde_yaml::to_string(&map).context("Operation failed")?;
-        fs::write(yml_path.as_std_path(), new_content).context("Operation failed")?;
+        let new_content =
+            serde_yaml::to_string(&map).context("Failed to serialize new configuration.")?;
+        fs::write(&yml_path, new_content).context("Failed to write updated configuration.")?;
         Ok(true)
     }
 }
 
 pub fn yml_read(is_dev: bool) -> anyhow::Result<ValidatedConfig> {
-    let project_root = root().context("Could not find project root")?;
-    let project_root = Utf8PathBuf::try_from(project_root).context("Project root is not valid UTF-8")?;
+    let project_root = root().context("Could not find project root.")?;
+    let project_root =
+        Utf8PathBuf::try_from(project_root).context("Project root is not valid UTF-8.")?;
     yml_read_from(&project_root, is_dev)
 }
 
@@ -705,7 +770,10 @@ build:
         let config_detailed: ProjConfig = serde_yaml::from_str(yaml_detailed).unwrap();
         assert_eq!(
             config_detailed.build.git,
-            GitConfigOpt::Detailed(GitConfig { commit: Some(true), push: Some(false) })
+            GitConfigOpt::Detailed(GitConfig {
+                commit: Some(true),
+                push: Some(false)
+            })
         );
     }
 }
@@ -713,8 +781,8 @@ build:
 #[cfg(test)]
 mod parameter_tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
 
     #[test]
     fn test_parameter_aliases() {
