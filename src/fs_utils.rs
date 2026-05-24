@@ -15,12 +15,18 @@ pub fn dir_move_exact(source: &Utf8Path, dest: &Utf8Path) -> anyhow::Result<()> 
                     let entry_path_utf8 = camino::Utf8PathBuf::try_from(entry.path())
                         .context("Encountered non-UTF-8 path during directory iteration")?;
 
-                    let name_str = entry_path_utf8.file_name().unwrap_or("");
+                    let name_str = entry_path_utf8.file_name()
+                        .context("Failed to get file name from path")?;
+
                     // Protected File Exclusion Guard
                     if name_str == "CHANGELOG.md" || name_str == ".gitignore" || name_str == "README.md" {
                         continue;
                     }
-                    if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                    let is_dir = entry.file_type()
+                        .context("Failed to read file type")?
+                        .is_dir();
+
+                    if is_dir {
                         fs::remove_dir_all(entry_path_utf8.as_std_path())
                             .context("Failed to remove directory")?;
                     } else {
