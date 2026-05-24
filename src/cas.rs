@@ -92,11 +92,11 @@ use tempfile::NamedTempFile;
 /// assert_eq!(hash, "d74981efa70a0c880b8d8c1985d075dbcbf679b99a5f9914e5aaf96b831a9e24");
 /// ```
 pub fn hash_file(path: &Utf8Path) -> Result<String> {
-    let mut file = File::open(path.as_std_path())?;
+    let mut file = File::open(path.as_std_path()).context("Failed to open file for hashing.")?;
     let mut hasher = blake3::Hasher::new();
     let mut buffer = [0; 65536]; // 64 KB buffer
     loop {
-        let n = file.read(&mut buffer)?;
+        let n = file.read(&mut buffer).context("Failed to read file for hashing.")?;
         if n == 0 {
             break;
         }
@@ -128,8 +128,8 @@ use crate::yml::{ValidatedConfig, InspectStrategy};
 /// # Errors
 /// Returns an `io::Error` if the remote isn't found, manifest lacks files, or an integrity constraint fails.
 pub fn verify_remote_integrity(remote_title: &str, validated: &ValidatedConfig) -> Result<()> {
-    let remotes = validated.remotes.local.as_ref().ok_or_else(|| anyhow::anyhow!("No remotes configured"))?;
-    let remote = remotes.get(remote_title).ok_or_else(|| anyhow::anyhow!("Remote '{}' not found", remote_title))?;
+    let remotes = validated.remotes.local.as_ref().ok_or_else(|| anyhow::anyhow!("No remotes configured."))?;
+    let remote = remotes.get(remote_title).ok_or_else(|| anyhow::anyhow!("Remote '{}' not found.", remote_title))?;
 
     let manifests_dir = remote.path.join("manifests");
     let objects_dir = remote.path.join("objects");
@@ -138,10 +138,12 @@ pub fn verify_remote_integrity(remote_title: &str, validated: &ValidatedConfig) 
         return Ok(()); // Empty but structurally valid
     }
 
-    for entry in fs::read_dir(manifests_dir)? {
-        let entry = entry?;
-        let manifest_path = entry.path();
-        if manifest_path.extension().and_then(|e| e.to_str()) != Some("json") {
+    for entry in fs::read_dir(manifests_dir.as_std_path()).context("Failed to read manifests directory.")? {
+        let entry = entry.context("Failed to read directory entry.")?;
+        let entry_path = camino::Utf8PathBuf::try_from(entry.path())
+            .context("Encountered non-UTF-8 path in manifests directory.")?;
+
+        if entry_path.extension() != Some("json") {
             continue;
         }
 
@@ -153,19 +155,21 @@ pub fn verify_remote_integrity(remote_title: &str, validated: &ValidatedConfig) 
             }
             InspectStrategy::File => {
                 // Read and check each file
-                let content = fs::read_to_string(manifest_path)?;
-                let manifest: DirectoryManifest = serde_json::from_str(&content)?;
+                let content = fs::read_to_string(entry_path.as_std_path())
+                    .context("Failed to read manifest file content.")?;
+                let manifest: DirectoryManifest = serde_json::from_str(&content)
+                    .context("Failed to parse manifest file JSON.")?;
 
                 for file_entry in manifest.files {
                     if file_entry.hash.len() < 2 {
-                         anyhow::bail!("Invalid hash found");
+                         anyhow::bail!("Invalid hash found.");
                     }
                     let prefix = &file_entry.hash[0..2];
                     let suffix = &file_entry.hash[2..];
                     let expected_path = objects_dir.join(prefix).join(suffix);
 
                     if !expected_path.exists() {
-                        anyhow::bail!("Missing file object for hash {}", file_entry.hash);
+                        anyhow::bail!("Missing file object for hash {}.", file_entry.hash);
                     }
                 }
             }
@@ -187,17 +191,17 @@ pub fn ingest_directory(
     // 1. Scan and compute hashes
     fn scan_dir(dir: &Utf8Path, source_root: &Utf8Path, files: &mut Vec<FileEntry>) -> Result<()> {
         if dir.is_dir() {
-            for entry in fs::read_dir(dir.as_std_path())? {
-                let entry = entry?;
+            for entry in fs::read_dir(dir.as_std_path()).context("Failed to read directory during scan.")? {
+                let entry = entry.context("Failed to read directory entry.")?;
                 let path = camino::Utf8PathBuf::try_from(entry.path())
-                    .context("File system path is not valid UTF-8.")?;
+                    .context("Encountered non-UTF-8 path during scan.")?;
 
                 if path.is_dir() {
                     scan_dir(&path, source_root, files)?;
                 } else {
                     let hash = hash_file(&path)?;
                     // Calculate relative path
-                    let rel_path = path.strip_prefix(source_root)?.to_string();
+                    let rel_path = path.strip_prefix(source_root).context("Failed to strip prefix.")?.to_string();
 
                     // Standardize path separators to forward slashes
                     let rel_path = rel_path.replace("\\", "/");
@@ -221,13 +225,12 @@ pub fn ingest_directory(
     };
 
     // Serialize manifest and compute directory hash
-    let manifest_json = serde_json::to_string(&manifest)
-        ?;
+    let manifest_json = serde_json::to_string(&manifest).context("Failed to serialize manifest JSON.")?;
     let directory_hash = blake3::hash(manifest_json.as_bytes()).to_hex().to_string();
 
     // 2. Ingest files into CAS remote
     let objects_dir = cas_remote_root.join("objects");
-    fs::create_dir_all(objects_dir.as_std_path())?;
+    fs::create_dir_all(objects_dir.as_std_path()).context("Failed to create objects directory.")?;
 
     for entry in &manifest.files {
         let hash = &entry.hash;
@@ -238,7 +241,7 @@ pub fn ingest_directory(
         let suffix = &hash[2..];
 
         let target_dir = objects_dir.join(prefix);
-        fs::create_dir_all(target_dir.as_std_path())?;
+        fs::create_dir_all(target_dir.as_std_path()).context("Failed to create target prefix directory.")?;
 
         let target_path = target_dir.join(suffix);
 
@@ -246,9 +249,9 @@ pub fn ingest_directory(
             let source_file_path = source_dir.join(&entry.path);
 
             // Atomic copy using tempfile in the same directory
-            let mut temp_file = NamedTempFile::new_in(&target_dir)?;
-            let mut src_file = File::open(source_file_path.as_std_path())?;
-            io::copy(&mut src_file, &mut temp_file)?;
+            let mut temp_file = NamedTempFile::new_in(&target_dir).context("Failed to create temporary file.")?;
+            let mut src_file = File::open(source_file_path.as_std_path()).context("Failed to open source file.")?;
+            io::copy(&mut src_file, &mut temp_file).context("Failed to copy file contents.")?;
 
             temp_file.persist(&target_path)
                 .context("Failed to persist temporary file to target path.")?;
@@ -257,23 +260,25 @@ pub fn ingest_directory(
 
     // 3. Export Manifests
     let manifests_dir = cas_remote_root.join("manifests");
-    fs::create_dir_all(manifests_dir.as_std_path())?;
+    fs::create_dir_all(manifests_dir.as_std_path()).context("Failed to create manifests directory.")?;
 
     let manifest_path = manifests_dir.join(format!("{}.json", directory_hash));
-    fs::write(manifest_path.as_std_path(), manifest_json)?;
+    fs::write(manifest_path.as_std_path(), manifest_json).context("Failed to write manifest file.")?;
 
     // 4. Update Flat Project Index
     let projr_dir = project_root.join(".projr");
-    fs::create_dir_all(projr_dir.as_std_path())?;
+    fs::create_dir_all(projr_dir.as_std_path()).context("Failed to create projr directory.")?;
 
     let ledger_path = projr_dir.join("manifests.csv");
     let mut ledger_file = fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&ledger_path)?;
+        .open(&ledger_path)
+        .context("Failed to open ledger file.")?;
 
     let timestamp = Utc::now().to_rfc3339();
-    writeln!(ledger_file, "{},{},{},{}", version, label, directory_hash, timestamp)?;
+    writeln!(ledger_file, "{},{},{},{}", version, label, directory_hash, timestamp)
+        .context("Failed to write to ledger file.")?;
 
     Ok(())
 }
