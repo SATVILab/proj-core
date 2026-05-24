@@ -171,12 +171,12 @@ pub fn version_get() -> Option<ProjVersion> {
 /// ```
 pub fn version_set_at(root: &Utf8Path, version_str: &str) -> anyhow::Result<()> {
     let version = ProjVersion::parse(version_str)
-        .ok_or_else(|| anyhow::anyhow!("Could not parse version: {}", version_str))?;
+        .with_context(|| format!("Could not parse version: {}", version_str))?;
 
     let version_file_path = root.join("VERSION");
     let content = format!("Version: {}", version.to_string(true));
 
-    fs::write(version_file_path, content).context("Failed to write version to file.")?;
+    fs::write(version_file_path, content).context("Failed to write version to file")?;
     Ok(())
 }
 
@@ -191,7 +191,7 @@ pub fn version_set_at(root: &Utf8Path, version_str: &str) -> anyhow::Result<()> 
 /// version_set("1.0.0").unwrap();
 /// ```
 pub fn version_set(version_str: &str) -> anyhow::Result<()> {
-    let root = root().context("Could not find project root containing VERSION file.")?;
+    let root = root().context("Could not find project root containing VERSION file")?;
     version_set_at(&root, version_str)
 }
 
