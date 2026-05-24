@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use anyhow::Context;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde_json::Value;
 
@@ -31,7 +32,8 @@ pub fn create_profile(name: &str, project_root: &Utf8Path) -> anyhow::Result<Utf
     if path.exists() {
         anyhow::bail!("Profile {} already exists.", name);
     }
-    fs::write(&path, "")?;
+    fs::write(&path, "")
+        .with_context(|| format!("Failed to write empty profile to {}", path))?;
     Ok(path)
 }
 
@@ -64,18 +66,25 @@ pub fn create_local_profile(project_root: &Utf8Path) -> anyhow::Result<Utf8PathB
     }
 
     if baseline_path.exists() {
-        let content = fs::read_to_string(&baseline_path)?;
-        let yaml_value: serde_yaml::Value = serde_yaml::from_str(&content)?;
+        let content = fs::read_to_string(&baseline_path)
+            .with_context(|| format!("Failed to read baseline configuration from {}", baseline_path))?;
+        let yaml_value: serde_yaml::Value = serde_yaml::from_str(&content)
+            .context("Failed to parse baseline YAML configuration")?;
 
         // Convert to serde_json::Value for processing
-        let mut json_value: serde_json::Value = serde_json::to_value(yaml_value)?;
+        let mut json_value: serde_json::Value = serde_json::to_value(yaml_value)
+            .context("Failed to convert YAML configuration to JSON for nullification")?;
         nullify_values(&mut json_value);
 
-        let out_yaml: serde_yaml::Value = serde_json::from_value(json_value)?;
-        let out_str = serde_yaml::to_string(&out_yaml)?;
-        fs::write(&local_path, out_str)?;
+        let out_yaml: serde_yaml::Value = serde_json::from_value(json_value)
+            .context("Failed to convert nullified JSON back to YAML")?;
+        let out_str = serde_yaml::to_string(&out_yaml)
+            .context("Failed to serialize local profile YAML")?;
+        fs::write(&local_path, out_str)
+            .with_context(|| format!("Failed to write local profile to {}", local_path))?;
     } else {
-        fs::write(&local_path, "")?;
+        fs::write(&local_path, "")
+            .with_context(|| format!("Failed to write empty local profile to {}", local_path))?;
     }
 
     Ok(local_path)
@@ -86,7 +95,8 @@ pub fn delete_profile(name: &str, project_root: &Utf8Path) -> anyhow::Result<()>
     let filename = format!("_projr-{}.yml", name);
     let path = project_root.join(filename);
     if path.exists() {
-        fs::remove_file(path)?;
+        fs::remove_file(&path)
+            .with_context(|| format!("Failed to delete profile file at {}", path))?;
         Ok(())
     } else {
         anyhow::bail!("Profile {} does not exist.", name);
