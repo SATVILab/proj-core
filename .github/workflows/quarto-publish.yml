@@ -17,7 +17,7 @@ jobs:
           fetch-depth: 0
 
       - name: Publish Quarto Site
-        uses: MiguelRodo/actions/publish-quarto-site@v2
+        uses: MiguelRodo/actions/publish-quarto-site@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           path: docs
